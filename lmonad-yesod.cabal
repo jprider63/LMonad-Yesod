@@ -45,11 +45,12 @@ cabal-version:       >=1.8
 library
   -- Modules exported by the library.
   exposed-modules:     
-      Database.LPersist.Types.Base
+      Database.LPersist.Types
     , Database.LPersist.Quasi
   
   -- Modules included in this library but not exported.
-  -- other-modules:       
+  other-modules:       
+      Database.LPersist.Types.Base
   
   hs-source-dirs:
       src

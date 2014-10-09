@@ -12,31 +12,39 @@ data LabelAnnotation =
     deriving (Eq, Read, Show, Ord)
 
 data LEntityDef = LEntityDef
-    { entityHaskell :: !HaskellName
-    , entityDB      :: !DBName
-    , entityId      :: !FieldDef
-    , entityAttrs   :: ![Attr]
-    , entityFields  :: ![LFieldDef]
-    , entityUniques :: ![UniqueDef]
-    , entityForeigns:: ![ForeignDef]
-    , entityDerives :: ![Text]
-    , entityExtra   :: !(Map Text [ExtraLine])
-    , entitySum     :: !Bool
+    { lEntityHaskell :: !HaskellName
+    , lEntityDB      :: !DBName
+    , lEntityId      :: !FieldDef
+    , lEntityAttrs   :: ![Attr]
+    , lEntityFields  :: ![LFieldDef]
+    , lEntityUniques :: ![UniqueDef]
+    , lEntityForeigns:: ![ForeignDef]
+    , lEntityDerives :: ![Text]
+    , lEntityExtra   :: !(Map Text [ExtraLine])
+    , lEntitySum     :: !Bool
     }
     deriving (Show, Eq, Read, Ord)
 
 data LFieldDef = LFieldDef
-    { fieldHaskell          :: !HaskellName -- ^ name of the field
-    , fieldDB               :: !DBName
-    , fieldType             :: !FieldType
-    , fieldSqlType          :: !SqlType
-    , fieldAttrs            :: ![Attr]    -- ^ user annotations for a field
-    , fieldStrict           :: !Bool      -- ^ a strict field in the data type. Default: true
-    , fieldReference        :: !ReferenceDef
-    , fieldLabelAnnotations :: !(Maybe (LabelAnnotation,LabelAnnotation,LabelAnnotation))
+    { lFieldHaskell          :: !HaskellName -- ^ name of the field
+    , lFieldDB               :: !DBName
+    , lFieldType             :: !FieldType
+    , lFieldSqlType          :: !SqlType
+    , lFieldAttrs            :: ![Attr]    -- ^ user annotations for a field
+    , lFieldStrict           :: !Bool      -- ^ a strict field in the data type. Default: true
+    , lFieldReference        :: !ReferenceDef
+    , lFieldLabelAnnotations :: !(Maybe (LabelAnnotation,LabelAnnotation,LabelAnnotation))
     }
     deriving (Show, Eq, Read, Ord)
 
+unlabelFieldDef :: LFieldDef -> FieldDef
+unlabelFieldDef (LFieldDef a b c d e f g _) = 
+    FieldDef a b c d e f g
+
+unlabelEntityDef :: LEntityDef -> EntityDef
+unlabelEntityDef (LEntityDef a b c d e lFs g h i j k) = 
+    let fs = map unlabelFieldDef lFs in
+    EntityDef a b c d e fs g h i j k
+
 -- TODO: 
---  unlabelEntityDef :: LEntityDef -> EntityDef XXX
 --  lShare

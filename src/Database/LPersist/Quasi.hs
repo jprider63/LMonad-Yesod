@@ -26,6 +26,7 @@ module Database.LPersist.Quasi
 
 import Prelude hiding (lines)
 import Database.Persist.Types
+import Database.LPersist.Types
 import Data.Char
 import Data.Maybe (mapMaybe, fromMaybe, maybeToList)
 import Data.Text (Text)
