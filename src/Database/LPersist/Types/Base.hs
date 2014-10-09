@@ -1,11 +1,15 @@
 module Database.LPersist.Types.Base where
 
+import Data.Map (Map)
+import Data.Text (Text)
 import Database.Persist.Types
 
 data LabelAnnotation = 
       LAConst Text
     | LAField Text
 --    | LAForeign Text
+
+    deriving (Eq, Read, Show, Ord)
 
 data LEntityDef = LEntityDef
     { entityHaskell :: !HaskellName
