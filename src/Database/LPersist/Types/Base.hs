@@ -1,6 +1,6 @@
 module Database.LPersist.Types.Base where
 
-import Database.Persist.Types.Base
+import Database.Persist.Types
 
 data LabelAnnotation = 
       LAConst Text
