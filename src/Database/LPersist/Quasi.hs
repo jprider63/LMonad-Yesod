@@ -11,18 +11,18 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Database.LPersist.Quasi
-    ( parse
-    , PersistSettings (..)
-    , upperCaseSettings
-    , lowerCaseSettings
-    , nullable
-#if TEST
-    , Token (..)
-    , tokenize
-    , parseFieldType
-#endif
-    ) where
+module Database.LPersist.Quasi (lParse) where
+--     ( parse
+--     , PersistSettings (..)
+--     , upperCaseSettings
+--     , lowerCaseSettings
+--     , nullable
+-- #if TEST
+--     , Token (..)
+--     , tokenize
+--     , parseFieldType
+-- #endif
+--     ) where
 
 import Prelude hiding (lines)
 import Database.Persist.Types
@@ -125,6 +125,9 @@ parse ps = parseLines ps
       . map tokenize
       . T.lines
 
+lParse :: PersistSettings -> Text -> [LEntityDef]
+lParse ps = undefined
+
 -- | A token used by the parser.
 data Token = Spaces !Int   -- ^ @Spaces n@ are @n@ consecutive spaces.
            | Token Text    -- ^ @Token tok@ is token @tok@ already unquoted.
@@ -138,6 +141,7 @@ tokenize t
     | "#" `T.isPrefixOf` t = [] -- Also comment to the end of the line, needed for a CPP bug (#110)
     | T.head t == '"' = quotes (T.tail t) id
     | T.head t == '(' = parens 1 (T.tail t) id
+    | T.head t == '<' = chevrons (T.tail t) ("<":) -- TODO: double check this XXX
     | isSpace (T.head t) =
         let (spaces, rest) = T.span isSpace t
          in Spaces (T.length spaces) : tokenize rest
@@ -167,6 +171,7 @@ tokenize t
         | otherwise =
             let (x, y) = T.break (`elem` "\\\"") t'
              in quotes y (front . (x:))
+
     parens count t' front
         | T.null t' = error $ T.unpack $ T.concat $
             "Unterminated parens string starting with " : front []
@@ -181,6 +186,17 @@ tokenize t
         | otherwise =
             let (x, y) = T.break (`elem` "\\()") t'
              in parens count y (front . (x:))
+
+    -- TODO: need to update midtoken!! Look for ',' ??? XXX
+    chevrons t' front
+        | T.null t' = error $ T.unpack $ T.concat $ 
+            "Unterminated chevrons string starting with " : front []
+        | T.head t' == '>' = 
+            Token (T.concat $ front [">"]) : tokenize (T.tail t')
+        -- TODO: add backslashes, escaping?
+        | otherwise =
+            let (x, y) = T.break (`elem` ">") t'
+            in chevrons y (front . (x:))
 
 -- | A string of tokens is empty when it has only spaces.  There
 -- can't be two consecutive 'Spaces', so this takes /O(1)/ time.
