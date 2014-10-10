@@ -42,9 +42,9 @@ unlabelFieldDef (LFieldDef a b c d e f g _) =
     FieldDef a b c d e f g
 
 unlabelEntityDef :: LEntityDef -> EntityDef
-unlabelEntityDef (LEntityDef a b c d e lFs g h i j k) = 
+unlabelEntityDef (LEntityDef a b c d lFs e g h i j) = 
     let fs = map unlabelFieldDef lFs in
-    EntityDef a b c d e fs g h i j k
+    EntityDef a b c d fs e g h i j
 
 -- TODO: 
 --  lShare
