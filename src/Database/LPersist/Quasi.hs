@@ -11,7 +11,7 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Database.LPersist.Quasi (lParse) where
+module Database.LPersist.Quasi (lParse, lowerCaseSettings) where
 --     ( parse
 --     , PersistSettings (..)
 --     , upperCaseSettings
@@ -426,7 +426,7 @@ takeCols onErr ps (n':typ:rest)
                     , lFieldSqlType = SqlOther $ "SqlType unset for " `mappend` n
                     , lFieldAttrs = rest
                     , lFieldStrict = fromMaybe (psStrictFields ps) mstrict
-                    , lFieldReference = NoReference
+                    , lFieldReference = LNoReference
                     , lFieldLabelAnnotations = labels
                     }
                     -- TODO: add lFieldLabelAnnotations XXX

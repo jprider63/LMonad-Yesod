@@ -22,7 +22,7 @@ version:             0.1.0.0
 -- license:             
 
 -- The file containing the license text.
-license-file:        LICENSE
+-- TODO: license-file:        LICENSE XXX
 
 -- The package author(s).
 author:              James Parker
@@ -46,6 +46,7 @@ library
   -- Modules exported by the library.
   exposed-modules:     
       Database.LPersist.Types
+    , Database.LPersist.TH
     , Database.LPersist.Quasi
   
   -- Modules included in this library but not exported.
@@ -62,6 +63,7 @@ library
   build-depends:
       base         ==4.5.*
     , containers
+    , template-haskell
     , persistent   >= 2.1
     , text
   
