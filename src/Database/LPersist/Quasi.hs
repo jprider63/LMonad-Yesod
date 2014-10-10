@@ -118,15 +118,15 @@ lowerCaseSettings = defaultPersistSettings
     }
 
 -- | Parses a quasi-quoted syntax into a list of entity definitions.
-parse :: PersistSettings -> Text -> [EntityDef]
-parse ps = parseLines ps
+lParse :: PersistSettings -> Text -> [LEntityDef]
+lParse ps = parseLines ps
       . removeSpaces
       . filter (not . empty)
       . map tokenize
       . T.lines
 
-lParse :: PersistSettings -> Text -> [LEntityDef]
-lParse ps = undefined
+-- lParse :: PersistSettings -> Text -> [LEntityDef]
+-- lParse ps = undefined
 
 -- | A token used by the parser.
 data Token = Spaces !Int   -- ^ @Spaces n@ are @n@ consecutive spaces.
@@ -226,46 +226,48 @@ removeSpaces =
     fromToken Spaces{}  = Nothing
 
 -- | Divide lines into blocks and make entity definitions.
-parseLines :: PersistSettings -> [Line] -> [EntityDef]
+parseLines :: PersistSettings -> [Line] -> [LEntityDef]
 parseLines ps lines =
     fixForeignKeysAll $ toEnts lines
   where
     toEnts (Line indent (name:entattribs) : rest) =
         let (x, y) = span ((> indent) . lineIndent) rest
-        in  mkEntityDef ps name entattribs x : toEnts y
+        in  mkLEntityDef ps name entattribs x : toEnts y
     toEnts (Line _ []:rest) = toEnts rest
     toEnts [] = []
 
-fixForeignKeysAll :: [UnboundEntityDef] -> [EntityDef]
+fixForeignKeysAll :: [UnboundLEntityDef] -> [LEntityDef]
 fixForeignKeysAll unEnts = map fixForeignKeys unEnts
   where
-    ents = map unboundEntityDef unEnts
-    entLookup = M.fromList $ map (\e -> (entityHaskell e, e)) ents
+    ents = map unboundLEntityDef unEnts
+    entLookup = M.fromList $ map (\e -> (lEntityHaskell e, e)) ents
 
-    fixForeignKeys :: UnboundEntityDef -> EntityDef
-    fixForeignKeys (UnboundEntityDef foreigns ent) =
-      ent { entityForeigns = map (fixForeignKey ent) foreigns }
+    fixForeignKeys :: UnboundLEntityDef -> LEntityDef
+    fixForeignKeys (UnboundLEntityDef foreigns ent) =
+      ent { lEntityForeigns = map (fixForeignKey (unlabelEntityDef ent)) foreigns }
 
     -- check the count and the sqltypes match and update the foreignFields with the names of the primary columns
     fixForeignKey :: EntityDef -> UnboundForeignDef -> ForeignDef
     fixForeignKey ent (UnboundForeignDef foreignFieldTexts fdef) =
         case M.lookup (foreignRefTableHaskell fdef) entLookup of
-          Just pent -> case entityPrimary pent of
-             Just pdef ->
-                 if length foreignFieldTexts /= length (compositeFields pdef)
-                   then lengthError pdef
-                   else let fds_ffs = zipWith (toForeignFields pent)
-                                foreignFieldTexts
-                                (compositeFields pdef)
-                        in  fdef { foreignFields = map snd fds_ffs
-                                 , foreignNullable = setNull $ map fst fds_ffs
-                                 }
-             Nothing ->
-                 error $ "no explicit primary key fdef="++show fdef++ " ent="++show ent
+          Just pent' -> 
+            let pent = unlabelEntityDef pent' in
+            case entityPrimary pent of
+               Just pdef ->
+                   if length foreignFieldTexts /= length (compositeFields pdef)
+                     then lengthError pdef
+                     else let fds_ffs = zipWith (toForeignFields pent)
+                                  foreignFieldTexts
+                                  (compositeFields pdef)
+                          in  fdef { foreignFields = map snd fds_ffs
+                                   , foreignNullable = setNull $ map fst fds_ffs
+                                   }
+               Nothing ->
+                   error $ "no explicit primary key fdef="++show fdef++ " ent="++show ent
           Nothing ->
              error $ "could not find table " ++ show (foreignRefTableHaskell fdef)
                ++ " fdef=" ++ show fdef ++ " allnames="
-               ++ show (map (unHaskellName . entityHaskell . unboundEntityDef) unEnts)
+               ++ show (map (unHaskellName . entityHaskell . unlabelEntityDef . unboundLEntityDef) unEnts)
                ++ "\n\nents=" ++ show ents
       where
         setNull :: [FieldDef] -> Bool
@@ -303,9 +305,9 @@ fixForeignKeysAll unEnts = map fixForeignKeys unEnts
         lengthError pdef = error $ "found " ++ show (length foreignFieldTexts) ++ " fkeys and " ++ show (length (compositeFields pdef)) ++ " pkeys: fdef=" ++ show fdef ++ " pdef=" ++ show pdef
 
 
-data UnboundEntityDef = UnboundEntityDef
+data UnboundLEntityDef = UnboundLEntityDef
                         { _unboundForeignDefs :: [UnboundForeignDef]
-                        , unboundEntityDef :: EntityDef
+                        , unboundLEntityDef :: LEntityDef
                         }
 
 
@@ -315,14 +317,14 @@ lookupPrefix :: Text -> [Text] -> Maybe Text
 lookupPrefix prefix = msum . map (T.stripPrefix prefix)
 
 -- | Construct an entity definition.
-mkEntityDef :: PersistSettings
+mkLEntityDef :: PersistSettings
             -> Text -- ^ name
             -> [Attr] -- ^ entity attributes
             -> [Line] -- ^ indented lines
-            -> UnboundEntityDef
-mkEntityDef ps name entattribs lines =
-  UnboundEntityDef foreigns $
-    EntityDef
+            -> UnboundLEntityDef
+mkLEntityDef ps name entattribs lines =
+  UnboundLEntityDef foreigns $
+    LEntityDef
         entName
         (DBName $ getDbName ps name' entattribs)
         -- idField is the user-specified Id
@@ -349,13 +351,13 @@ mkEntityDef ps name entattribs lines =
            | otherwise = Nothing
             
     (idField, primaryComposite, uniqs, foreigns) = foldl' (\(mid, mp, us, fs) attr -> 
-        let (i, p, u, f) = takeConstraint ps name' cols attr 
+        let (i, p, u, f) = takeConstraint ps name' (map unlabelFieldDef cols) attr 
             squish xs m = xs `mappend` maybeToList m
         in (just1 mid i, just1 mp p, squish us u, squish fs f)) (Nothing, Nothing, [],[]) attribs
                                     
     derives = concat $ mapMaybe takeDerives attribs
 
-    cols :: [FieldDef]
+    cols :: [LFieldDef]
     cols = mapMaybe (takeColsEx ps) attribs
 
     autoIdField = mkAutoIdField ps entName (DBName `fmap` idName) idSqlType
@@ -401,24 +403,33 @@ splitExtras (Line _ ts:rest) =
     let (x, y) = splitExtras rest
      in (ts:x, y)
 
-takeColsEx :: PersistSettings -> [Text] -> Maybe FieldDef
+takeColsEx :: PersistSettings -> [Text] -> Maybe LFieldDef
 takeColsEx = takeCols (\ft perr -> error $ "Invalid field type " ++ show ft ++ " " ++ perr)
 
-takeCols :: (Text -> String -> Maybe FieldDef) -> PersistSettings -> [Text] -> Maybe FieldDef
+takeCols :: (Text -> String -> Maybe LFieldDef) -> PersistSettings -> [Text] -> Maybe LFieldDef
 takeCols _ _ ("deriving":_) = Nothing
 takeCols onErr ps (n':typ:rest)
     | not (T.null n) && isLower (T.head n) =
         case parseFieldType typ of
             Left err -> onErr typ err
-            Right ft -> Just FieldDef
-                { fieldHaskell = HaskellName n
-                , fieldDB = DBName $ getDbName ps n rest
-                , fieldType = ft
-                , fieldSqlType = SqlOther $ "SqlType unset for " `mappend` n
-                , fieldAttrs = rest
-                , fieldStrict = fromMaybe (psStrictFields ps) mstrict
-                , fieldReference = NoReference
-                }
+            Right ft -> 
+                let (rest, labels) = 
+                        error $ show rest
+                    -- TODO: implement me!!!
+                    --  What about maybe??
+                    --  check for < at start, > at end
+                in
+                Just LFieldDef
+                    { lFieldHaskell = HaskellName n
+                    , lFieldDB = DBName $ getDbName ps n rest
+                    , lFieldType = ft
+                    , lFieldSqlType = SqlOther $ "SqlType unset for " `mappend` n
+                    , lFieldAttrs = rest
+                    , lFieldStrict = fromMaybe (psStrictFields ps) mstrict
+                    , lFieldReference = NoReference
+                    , lFieldLabelAnnotations = labels
+                    }
+                    -- TODO: add lFieldLabelAnnotations XXX
   where
     (mstrict, n)
         | Just x <- T.stripPrefix "!" n' = (Just True, x)
@@ -449,7 +460,7 @@ takeConstraint _ _ _ _ = (Nothing, Nothing, Nothing, Nothing)
 -- need to re-work takeCols function
 takeId :: PersistSettings -> Text -> [Text] -> FieldDef
 takeId ps tableName (n:rest) = fromMaybe (error "takeId: impossible!") $ setFieldDef $
-    takeCols (\_ _ -> addDefaultIdType) ps (field:rest `mappend` setIdName)
+    maybe Nothing (Just . unlabelFieldDef) $ takeCols (\_ _ -> addDefaultIdType) ps (field:rest `mappend` setIdName)
   where
     field = case T.uncons n of
       Nothing -> error "takeId: empty field"
