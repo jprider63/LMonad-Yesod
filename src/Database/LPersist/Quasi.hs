@@ -11,7 +11,7 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
-module Database.LPersist.Quasi (lParse, lowerCaseSettings) where
+module Database.LPersist.Quasi (lParse) where
 --     ( parse
 --     , PersistSettings (..)
 --     , upperCaseSettings
