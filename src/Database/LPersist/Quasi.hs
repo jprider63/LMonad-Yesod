@@ -138,7 +138,7 @@ tokenize t
     | "#" `T.isPrefixOf` t = [] -- Also comment to the end of the line, needed for a CPP bug (#110)
     | T.head t == '"' = quotes (T.tail t) id
     | T.head t == '(' = parens 1 (T.tail t) id
-    | T.head t == '<' = chevrons (T.tail t) ("<":)
+    | T.head t == '<' = chevrons (T.tail t) ("chevrons=":)
     | isSpace (T.head t) =
         let (spaces, rest) = T.span isSpace t
          in Spaces (T.length spaces) : tokenize rest
@@ -168,6 +168,7 @@ tokenize t
         | otherwise =
             let (x, y) = T.break (`elem` "\\\"") t'
              in quotes y (front . (x:))
+
     parens count t' front
         | T.null t' = error $ T.unpack $ T.concat $
             "Unterminated parens string starting with " : front []
@@ -187,7 +188,7 @@ tokenize t
         | T.null t' = error $ T.unpack $ T.concat $ 
             "Unterminated chevrons string starting with " : front []
         | T.head t' == '>' = 
-            Token (T.concat $ front [">"]) : tokenize (T.tail t')
+            Token (T.concat $ front []) : tokenize (T.tail t')
         | T.head t' == '\\' && T.length t' > 1 =
             quotes (T.drop 2 t') (front . (T.take 1 (T.drop 1 t'):))
         | otherwise =
