@@ -138,6 +138,7 @@ tokenize t
     | "#" `T.isPrefixOf` t = [] -- Also comment to the end of the line, needed for a CPP bug (#110)
     | T.head t == '"' = quotes (T.tail t) id
     | T.head t == '(' = parens 1 (T.tail t) id
+    | T.head t == '<' = chevrons (T.tail t) ("<":)
     | isSpace (T.head t) =
         let (spaces, rest) = T.span isSpace t
          in Spaces (T.length spaces) : tokenize rest
@@ -181,6 +182,16 @@ tokenize t
         | otherwise =
             let (x, y) = T.break (`elem` "\\()") t'
              in parens count y (front . (x:))
+
+    chevrons t' front
+        | T.null t' = error $ T.unpack $ T.concat $ 
+            "Unterminated chevrons string starting with " : front []
+        | T.head t' == '>' = 
+            Token (T.concat $ front [">"]) : tokenize (T.tail t')
+        -- TODO: add backslashes, escaping?
+        | otherwise =
+            let (x, y) = T.break (`elem` ">") t'
+            in chevrons y (front . (x:))
 
 -- | A string of tokens is empty when it has only spaces.  There
 -- can't be two consecutive 'Spaces', so this takes /O(1)/ time.
