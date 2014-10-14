@@ -188,9 +188,10 @@ tokenize t
             "Unterminated chevrons string starting with " : front []
         | T.head t' == '>' = 
             Token (T.concat $ front [">"]) : tokenize (T.tail t')
-        -- TODO: add backslashes, escaping?
+        | T.head t' == '\\' && T.length t' > 1 =
+            quotes (T.drop 2 t') (front . (T.take 1 (T.drop 1 t'):))
         | otherwise =
-            let (x, y) = T.break (`elem` ">") t'
+            let (x, y) = T.break (`elem` "\\>") t'
             in chevrons y (front . (x:))
 
 -- | A string of tokens is empty when it has only spaces.  There
