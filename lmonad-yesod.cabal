@@ -22,7 +22,7 @@ version:             0.1.0.0
 -- license:             
 
 -- The file containing the license text.
-license-file:        LICENSE
+-- TODO: license-file:        LICENSE XXX
 
 -- The package author(s).
 author:              James Parker
@@ -45,7 +45,8 @@ cabal-version:       >=1.8
 library
   -- Modules exported by the library.
   exposed-modules:     
-      Database.LPersist.TH
+      Database.LPersist.Labeler
+    , Database.LPersist.TH
   
   -- Modules included in this library but not exported.
   other-modules:       
@@ -61,6 +62,7 @@ library
   build-depends:
       base ==4.5.*
     , containers
+    , lmonad
     , persistent
     , tagged
     , template-haskell
