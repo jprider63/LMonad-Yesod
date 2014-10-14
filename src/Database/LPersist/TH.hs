@@ -5,10 +5,10 @@
 -- {-# LANGUAGE RankNTypes #-}
 -- {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleContexts, FlexibleInstances, UndecidableInstances #-}
--- {-# OPTIONS_GHC -fno-warn-orphans -fno-warn-missing-fields #-}
+{-# OPTIONS_GHC -fno-warn-orphans -fno-warn-missing-fields #-}
 -- overlapping instances is for automatic lifting
 -- while avoiding an orphan of Lift for Text
--- {-# LANGUAGE OverlappingInstances #-}
+{-# LANGUAGE OverlappingInstances #-}
 -- | This module provides utilities for creating backends. Regular users do not
 -- need to use this module.
 module Database.LPersist.TH
