@@ -60,7 +60,8 @@ library
 
   -- Other library packages from which modules are imported.
   build-depends:
-      base ==4.5.*
+      attoparsec
+    , base ==4.5.*
     , containers
     , lmonad
     , persistent
