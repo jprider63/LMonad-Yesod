@@ -33,7 +33,7 @@ mkLabels labelS ents =
                         error $ "Invalid label type constructor `" ++ (Text.unpack conT) ++ "`"
                     else
                         let con = ConT $ mkName $ Text.unpack conT in
-                        List.foldl' (\acc typ -> AppT acc (VarT (mkName (Text.unpack typ)))) con rest
+                        List.foldl' (\acc typ -> AppT acc (ConT (mkName (Text.unpack typ)))) con rest
 
 -- | Create protected ADTs for the models in Persist's DSL. 
 -- Ex: ProtectedUser is created for protected version of User.
@@ -50,9 +50,16 @@ mkProtected labelType ent =
     return $ DataD [] pName [] [RecC pName pFields] []
 
     where
-        pName = mkName $ "Protected" ++ (Text.unpack $ unHaskellName $ lEntityHaskell ent)
+        eName = Text.unpack $ unHaskellName $ lEntityHaskell ent
+        pName = mkName $ "Protected" ++ eName
         mkProtectedField field = 
-            let name = mkName "TODO" in
+            let fName' = case Text.unpack $ unHaskellName $ lFieldHaskell field of
+                  h:t ->
+                    (Char.toUpper h):t
+                  s ->
+                    error $ "Invalid field name `" ++ s ++ "`"
+            in
+            let fName = mkName $ 'p':(eName ++ fName') in
             let strict = if lFieldStrict field then IsStrict else NotStrict in
             let rawType = fieldTypeToType $ lFieldType field in
             let typ = case lFieldLabelAnnotations field of
@@ -61,7 +68,7 @@ mkProtected labelType ent =
                   Just _ ->
                     AppT (AppT (ConT (mkName "Labeled")) labelType) rawType
             in
-            (name, strict, typ)
+            (fName, strict, typ)
 
 -- | `LEntity` typeclass to taint labels when reading, writing, and creating entity fields.
 class Label l => LEntity l e where
