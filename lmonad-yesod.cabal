@@ -45,7 +45,8 @@ cabal-version:       >=1.8
 library
   -- Modules exported by the library.
   exposed-modules:     
-      Database.LPersist.Labeler
+      Database.LPersist
+    , Database.LPersist.Labeler
     , Database.LPersist.TH
   
   -- Modules included in this library but not exported.
