@@ -20,9 +20,10 @@ mkLabels :: String -> [EntityDef] -> Q [Dec]
 mkLabels labelS ents = 
     let entsL = map toLEntityDef ents in
     do
-    protected <- mapM (mkProtected labelType) entsL
-    labelFs <- mapM (mkLabelFieldChecks labelType) entsL
-    return $ concat [protected, concat labelFs]
+    protected <- mapM (mkProtectedEntity labelType) entsL
+    labelFs <- mapM (mkLabelEntity labelType) entsL
+    lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
+    return $ concat [protected, concat labelFs, lEntityInstance]
 
     where
         labelType = 
@@ -45,8 +46,8 @@ mkLabels labelS ents =
 --       , pUserEmail :: Labeled (DCLabel Principal) Text
 --       , pUserAdmin :: Bool
 --     }
-mkProtected :: Type -> LEntityDef -> Q Dec
-mkProtected labelType ent =
+mkProtectedEntity :: Type -> LEntityDef -> Q Dec
+mkProtectedEntity labelType ent =
     let pFields = map mkProtectedField (lEntityFields ent) in
     return $ DataD [] pName [] [RecC pName pFields] []
 
@@ -65,9 +66,39 @@ mkProtected labelType ent =
             in
             (fName, strict, typ)
 
+mkLEntityInstance :: Type -> LEntityDef -> Q Dec
+mkLEntityInstance labelType ent = 
+    let (rStmts,wStmts,cStmts) = List.foldl' mkStmts ([],[],[]) (lEntityFields ent) in
+    let funcs = [
+            FunD (mkName "raiseLabelRead") [Clause [VarP e] (NormalB (
+                    DoE rStmts
+                )) []],
+            FunD (mkName "raiseLabelWrite") [Clause [VarP e] (NormalB (
+                    DoE wStmts
+                )) []],
+            FunD (mkName "raiseLabelCreate") [Clause [VarP e] (NormalB (
+                    DoE cStmts
+                )) []]
+          ]
+    in
+    return $ InstanceD [] (AppT (AppT (ConT (mkName "LEntity")) labelType) (ConT (mkName eName))) funcs
 
-mkLabelFieldChecks :: Type -> LEntityDef -> Q [Dec]
-mkLabelFieldChecks labelType ent = 
+    where
+        eName = lEntityHaskell ent
+        taintLabel = VarE $ mkName "taintLabel"
+        e = mkName "_e"
+        mkStmts acc@(rAcc,wAcc,cAcc) field = case lFieldLabelAnnotations field of
+            Nothing -> 
+                acc
+            _ -> 
+                let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
+                let rStmt = NoBindS $ AppE taintLabel $ AppE (VarE (mkName ("readLabel"++baseName))) (VarE e) in
+                let wStmt = NoBindS $ AppE taintLabel $ AppE (VarE (mkName ("writeLabel"++baseName))) (VarE e) in
+                let cStmt = NoBindS $ AppE taintLabel $ AppE (VarE (mkName ("createLabel"++baseName))) (VarE e) in
+                ( rStmt:rAcc, wStmt:wAcc, cStmt:cAcc)
+
+mkLabelEntity :: Type -> LEntityDef -> Q [Dec]
+mkLabelEntity labelType ent = 
     let labelFs = map mkLabelField (lEntityFields ent) in
     return $ concat labelFs
     
@@ -109,7 +140,7 @@ mkLabelFieldChecks labelType ent =
                   in
                   ( FunD readName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB rBody) []]
                   , FunD writeName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB wBody) []]
-                  , FunD createName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB cBody) []]
+                  , FunD createName [Clause [VarP e] (NormalB cBody) []]
                   )
             in
             [readDef,writeDef,createDef]
@@ -134,11 +165,6 @@ mkLabelFieldChecks labelType ent =
 
 
 
--- | `LEntity` typeclass to taint labels when reading, writing, and creating entity fields.
-class Label l => LEntity l e where
-    raiseLabelRead :: LMonad m => Entity e -> String -> LMonadT l m (Maybe l)
-    raiseLabelWrite :: LMonad m => Entity e -> String -> LMonadT l m (Maybe l)
-    raiseLabelCreate :: LMonad m => e -> String -> LMonadT l m (Maybe l)
 
 data LEntityDef = LEntityDef
     { lEntityHaskell :: !String
