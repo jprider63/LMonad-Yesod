@@ -59,6 +59,9 @@ library
   ghc-options:
       -Wall -fno-warn-name-shadowing -O2
 
+  extensions:
+      MultiParamTypeClasses
+
   -- Other library packages from which modules are imported.
   build-depends:
       attoparsec
