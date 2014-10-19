@@ -120,31 +120,26 @@ mkLabelEntity labelType ent =
               ) bottom
             
         mkLabelField field = 
-            let annotations = lFieldLabelAnnotations field in
-            let eId = mkName "_eId" in
-            let e = mkName "_entity" in
-            let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
-            let readName = mkName $ "readLabel" ++ baseName in
-            let writeName = mkName $ "writeLabel" ++ baseName in
-            let createName = mkName $ "createLabel" ++ baseName in
-            --let readSig = SigD readName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
-            let (readDef,writeDef,createDef) = 
-                  let (rBody, wBody, cBody) = case annotations of
-                        Nothing ->
-                            ( bottom, bottom, bottom)
-                        Just ( readAnns, writeAnns, createAnns) ->
-                            ( combAnnotations toConfLabel eId e readAnns
-                            , combAnnotations toIntegLabel eId e writeAnns
-                            , combAnnotations toIntegLabel eId e createAnns
-                            )
-                  in
-                  ( FunD readName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB rBody) []]
-                  , FunD writeName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB wBody) []]
-                  , FunD createName [Clause [VarP e] (NormalB cBody) []]
-                  )
-            in
-            [readDef,writeDef,createDef]
-            --[readSig,readDef]
+            case lFieldLabelAnnotations field of
+                Nothing ->
+                    []
+                Just ( readAnns, writeAnns, createAnns) ->
+                    let eId = mkName "_eId" in
+                    let e = mkName "_entity" in
+                    let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
+                    let readName = mkName $ "readLabel" ++ baseName in
+                    let writeName = mkName $ "writeLabel" ++ baseName in
+                    let createName = mkName $ "createLabel" ++ baseName in
+                    let readSig = SigD readName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
+                    let rBody = combAnnotations toConfLabel eId e readAnns in
+                    let readDef = FunD readName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB rBody) []] in
+                    let writeSig = SigD writeName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
+                    let wBody = combAnnotations toIntegLabel eId e writeAnns in
+                    let writeDef = FunD writeName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB wBody) []] in
+                    let createSig = SigD createName $ AppT (AppT ArrowT ( ConT (mkName eName))) labelType in
+                    let cBody = combAnnotations toIntegLabel eId e createAnns in
+                    let createDef = FunD createName [Clause [VarP e] (NormalB cBody) []] in
+                    [readSig,readDef,writeSig,writeDef,createSig,createDef]
 
 -- -- mkLabelFieldChecks
 -- readLabelUserEmail :: Entity User -> UserLabel
