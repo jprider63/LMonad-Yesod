@@ -21,7 +21,8 @@ mkLabels labelS ents =
     let entsL = map toLEntityDef ents in
     do
     protected <- mapM (mkProtected labelType) entsL
-    return protected
+    labelFs <- mapM (mkLabelFieldChecks labelType) entsL
+    return $ concat [protected, concat labelFs]
 
     where
         labelType = 
@@ -50,16 +51,10 @@ mkProtected labelType ent =
     return $ DataD [] pName [] [RecC pName pFields] []
 
     where
-        eName = Text.unpack $ unHaskellName $ lEntityHaskell ent
+        eName = lEntityHaskell ent
         pName = mkName $ "Protected" ++ eName
         mkProtectedField field = 
-            let fName' = case Text.unpack $ unHaskellName $ lFieldHaskell field of
-                  h:t ->
-                    (Char.toUpper h):t
-                  s ->
-                    error $ "Invalid field name `" ++ s ++ "`"
-            in
-            let fName = mkName $ 'p':(eName ++ fName') in
+            let fName = mkName $ 'p':(eName ++ (headToUpper (lFieldHaskell field))) in
             let strict = if lFieldStrict field then IsStrict else NotStrict in
             let rawType = fieldTypeToType $ lFieldType field in
             let typ = case lFieldLabelAnnotations field of
@@ -70,6 +65,75 @@ mkProtected labelType ent =
             in
             (fName, strict, typ)
 
+
+mkLabelFieldChecks :: Type -> LEntityDef -> Q [Dec]
+mkLabelFieldChecks labelType ent = 
+    let labelFs = map mkLabelField (lEntityFields ent) in
+    return $ concat labelFs
+    
+    where
+        eName = lEntityHaskell ent
+        toConfLabel = VarE $ mkName "toConfidentialityLabel"
+        toIntegLabel = VarE $ mkName "toIntegrityLabel"
+        bottom = VarE $ mkName "bottom"
+        appJoin = AppE . (AppE (VarE (mkName "lub")))
+        combAnnotations f eId e = 
+            List.foldl' (\acc ann -> appJoin acc $ case ann of 
+                LAId ->
+                    AppE f $ VarE eId
+                LAConst c ->
+                    AppE f $ LitE $ StringL c
+                LAField fName ->
+                    let getter = VarE $ mkName $ (headToLower eName) ++ (headToUpper fName) in
+                    AppE f $ AppE getter $ VarE e
+              ) bottom
+            
+        mkLabelField field = 
+            let annotations = lFieldLabelAnnotations field in
+            let eId = mkName "_eId" in
+            let e = mkName "_entity" in
+            let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
+            let readName = mkName $ "readLabel" ++ baseName in
+            let writeName = mkName $ "writeLabel" ++ baseName in
+            let createName = mkName $ "createLabel" ++ baseName in
+            --let readSig = SigD readName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
+            let (readDef,writeDef,createDef) = 
+                  let (rBody, wBody, cBody) = case annotations of
+                        Nothing ->
+                            ( bottom, bottom, bottom)
+                        Just ( readAnns, writeAnns, createAnns) ->
+                            ( combAnnotations toConfLabel eId e readAnns
+                            , combAnnotations toIntegLabel eId e writeAnns
+                            , combAnnotations toIntegLabel eId e createAnns
+                            )
+                  in
+                  ( FunD readName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB rBody) []]
+                  , FunD writeName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB wBody) []]
+                  , FunD createName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB cBody) []]
+                  )
+            in
+            [readDef,writeDef,createDef]
+            --[readSig,readDef]
+
+-- -- mkLabelFieldChecks
+-- readLabelUserEmail :: Entity User -> UserLabel
+-- readLabelUserEmail (Entity uId _) = UserLabel
+--     (UserLabelSet (Set.singleton uId))
+--     (UserLabelSet Set.empty)
+-- 
+-- writeLabelUserEmail :: Entity User -> UserLabel
+-- writeLabelUserEmail (Entity uId _) = UserLabel
+--     (UserLabelSet Set.empty)
+--     (UserLabelSet (Set.singleton uId))
+-- 
+-- createLabelUserEmail :: User -> UserLabel
+-- createLabelUserEmail _ = bottom
+
+
+
+
+
+
 -- | `LEntity` typeclass to taint labels when reading, writing, and creating entity fields.
 class Label l => LEntity l e where
     raiseLabelRead :: LMonad m => Entity e -> String -> LMonadT l m (Maybe l)
@@ -77,8 +141,8 @@ class Label l => LEntity l e where
     raiseLabelCreate :: LMonad m => e -> String -> LMonadT l m (Maybe l)
 
 data LEntityDef = LEntityDef
-    { lEntityHaskell :: !HaskellName
-    , lEntityDB      :: !DBName
+    { lEntityHaskell :: !String
+    , lEntityDB      :: !String
 --     , lEntityId      :: !FieldDef
 --     , lEntityAttrs   :: ![Attr]
     , lEntityFields  :: ![LFieldDef]
@@ -90,8 +154,8 @@ data LEntityDef = LEntityDef
     }
 
 data LFieldDef = LFieldDef
-    { lFieldHaskell   :: !HaskellName -- ^ name of the field
-    , lFieldDB        :: !DBName
+    { lFieldHaskell   :: !String -- ^ name of the field
+    , lFieldDB        :: !String
     , lFieldType      :: !FieldType
 --    , lFieldSqlType   :: !SqlType
 --    , lFieldAttrs     :: ![Attr]    -- ^ user annotations for a field
@@ -103,15 +167,15 @@ data LFieldDef = LFieldDef
 
 toLEntityDef :: EntityDef -> LEntityDef
 toLEntityDef ent = LEntityDef {
-        lEntityHaskell = entityHaskell ent
-      , lEntityDB = entityDB ent
+        lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
+      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
       , lEntityFields = map toLFieldDef (entityFields ent)
     }
 
 toLFieldDef :: FieldDef -> LFieldDef
 toLFieldDef f = LFieldDef {
-        lFieldHaskell = fieldHaskell f
-      , lFieldDB = fieldDB f
+        lFieldHaskell = Text.unpack $ unHaskellName $ fieldHaskell f
+      , lFieldDB = Text.unpack $ unDBName $ fieldDB f
       , lFieldType = fieldType f
       , lFieldStrict = fieldStrict f
       , lFieldLabelAnnotations = labels
@@ -122,7 +186,7 @@ toLFieldDef f = LFieldDef {
             let attrs = fieldAttrs f in
             List.foldl' (\acc attr -> 
                 let ( prefix, affix) = Text.splitAt 9 attr in
-                if acc /= Nothing && prefix /= "chevrons=" then
+                if acc /= Nothing || prefix /= "chevrons=" then
                     acc
                 else
                     Just $ parseChevrons affix
@@ -182,16 +246,23 @@ parseChevrons s = case parseOnly parseC s of
                 "Const" -> do
                     skipSpace
                     name <- takeAlphaNum
-                    return $ LAConst name
+                    return $ LAConst $ Text.unpack name
                 "Field" -> do
                     skipSpace
                     name <- takeAlphaNum
-                    return $ LAField name
+                    return $ LAField $ Text.unpack name
                 _ -> 
-                    fail $ "Unknown keyword `" ++ (Text.unpack constr) ++ "`in parseChevrons. Use `Id`, `Const`, or `Field`"
+                    fail $ "Unknown keyword `" ++ (Text.unpack constr) ++ "` in parseChevrons. Use `Id`, `Const`, `Field`, or `_`"
         
         takeAlphaNum = takeWhile1 Char.isAlphaNum
             
+headToUpper :: String -> String
+headToUpper (h:t) = (Char.toUpper h):t
+headToUpper s = error $ "Invalid name `" ++ s ++ "`"
+
+headToLower :: String -> String
+headToLower (h:t) = (Char.toLower h):t
+headToLower s = error $ "Invalid name `" ++ s ++ "`"
 
 
 
@@ -203,15 +274,17 @@ parseChevrons s = case parseOnly parseC s of
 
 data LabelAnnotation = 
     LAId
-  | LAConst Text
-  | LAField Text
+  | LAConst String
+  | LAField String
     deriving (Show, Eq, Read, Ord)
 
 
 -- Or just use maybeRead? Or maybe not.
 class Label l => LabelAnnotationConstant l where
-    parseLAConstant :: String -> l
-    parseLAConstant c = error $ "LabelAnnotationConstant is not defined for constant `" ++ c ++ "`"
+    confLAConstant :: String -> l
+    confLAConstant c = error $ "LabelAnnotationConstant is not defined for constant `" ++ c ++ "`"
+    integLAConstant :: String -> l
+    integLAConstant c = error $ "LabelAnnotationConstant is not defined for constant `" ++ c ++ "`"
 
 
 -- EntityId -> String (FieldName) -> l
