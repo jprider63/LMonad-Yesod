@@ -3,6 +3,7 @@
 module Database.LPersist.Labeler (mkLabels) where
 
 import Control.Applicative
+import Control.Monad
 import qualified Data.Char as Char
 import qualified Data.List as List
 import Data.Text (Text)
@@ -20,10 +21,11 @@ mkLabels :: String -> [EntityDef] -> Q [Dec]
 mkLabels labelS ents = 
     let entsL = map toLEntityDef ents in
     do
-    protected <- mapM (mkProtectedEntity labelType) entsL
     labelFs <- mapM (mkLabelEntity labelType) entsL
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
-    return $ concat [protected, concat labelFs, lEntityInstance]
+    protected <- mapM (mkProtectedEntity labelType) entsL
+    protectedInstance <- mapM (mkProtectedEntityInstance labelType) entsL
+    return $ concat [concat labelFs, lEntityInstance, protected, protectedInstance]
 
     where
         labelType = 
@@ -141,25 +143,39 @@ mkLabelEntity labelType ent =
                     let createDef = FunD createName [Clause [VarP e] (NormalB cBody) []] in
                     [readSig,readDef,writeSig,writeDef,createSig,createDef]
 
--- -- mkLabelFieldChecks
--- readLabelUserEmail :: Entity User -> UserLabel
--- readLabelUserEmail (Entity uId _) = UserLabel
---     (UserLabelSet (Set.singleton uId))
---     (UserLabelSet Set.empty)
--- 
--- writeLabelUserEmail :: Entity User -> UserLabel
--- writeLabelUserEmail (Entity uId _) = UserLabel
---     (UserLabelSet Set.empty)
---     (UserLabelSet (Set.singleton uId))
--- 
--- createLabelUserEmail :: User -> UserLabel
--- createLabelUserEmail _ = bottom
+mkProtectedEntityInstance :: Type -> LEntityDef -> Q Dec
+mkProtectedEntityInstance labelType ent = do
+    ( fStmts, fExps) <- foldM mkProtectedFieldInstance ([],[]) $ lEntityFields ent
+    let recordCons = RecConE (mkName eName) fExps
+    let body = DoE $ fStmts ++ [NoBindS (AppE (VarE (mkName "return")) recordCons)]
+    let toProtected = FunD (mkName "toProtected") [Clause [AsP entity (ConP (mkName "Entity") [VarP eId,VarP e])] (NormalB body) []]
+    return $ InstanceD [] (AppT (AppT (AppT (ConT (mkName "ProtectedEntity")) labelType) (ConT (mkName eName))) (ConT (mkName ("Protected"++eName)))) [toProtected]
 
+    where 
+        eName = lEntityHaskell ent
+        e = mkName "_e"
+        eId = mkName "_eId"
+        entity = mkName "_entity"
 
-
-
-
-
+        mkProtectedFieldInstance :: ([Stmt],[FieldExp]) -> LFieldDef -> Q ([Stmt],[FieldExp])
+        mkProtectedFieldInstance (sAcc, fAcc) field = do
+            let fName = lFieldHaskell field
+            let getter = mkName $ (headToLower eName) ++ (headToUpper fName)
+            vName <- newName "v"
+            let setter = mkName $ 'p':(eName ++ (headToUpper fName))
+            let newF = (setter, VarE vName)
+            newS <- case lFieldLabelAnnotations field of
+                  Nothing ->
+                    return $ LetS [ValD (VarP vName) (NormalB (AppE (VarE getter) (VarE e))) []]
+                  Just _ -> do
+                    lName <- newName "l"
+                    let taintRead = mkName $ "readLabel" ++ eName ++ (headToUpper fName)
+                    let lDec = ValD (VarP lName) (NormalB (AppE (VarE taintRead) (VarE entity))) []
+                    return $ BindS (VarP vName) $ LetE [lDec] $ AppE (AppE (VarE (mkName "toLabeledTCB")) (VarE lName)) $ DoE [
+                            NoBindS $ AppE (VarE (mkName "taintLabel")) (VarE lName),
+                            NoBindS $ AppE (VarE (mkName "return")) (AppE (VarE getter) (VarE entity))
+                          ]
+            return ( (newS:sAcc), (newF:fAcc))
 
 data LEntityDef = LEntityDef
     { lEntityHaskell :: !String

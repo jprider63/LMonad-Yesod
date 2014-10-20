@@ -60,6 +60,7 @@ library
       -Wall -fno-warn-name-shadowing -O2
 
   extensions:
+      FunctionalDependencies
       MultiParamTypeClasses
 
   -- Other library packages from which modules are imported.

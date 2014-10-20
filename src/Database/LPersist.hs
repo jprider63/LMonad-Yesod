@@ -10,3 +10,8 @@ class Label l => LEntity l e where
     raiseLabelRead :: LMonad m => Entity e -> LMonadT l m ()
     raiseLabelWrite :: LMonad m => Entity e -> LMonadT l m ()
     raiseLabelCreate :: LMonad m => e -> LMonadT l m ()
+
+-- | Typeclass for protected entities.
+-- `mkLabels` automatically generates these instances.
+class Label l => ProtectedEntity l e p | e -> p where
+    toProtected :: LMonad m => Entity e -> LMonadT l m p
