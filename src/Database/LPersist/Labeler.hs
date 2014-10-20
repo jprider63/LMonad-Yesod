@@ -146,13 +146,14 @@ mkLabelEntity labelType ent =
 mkProtectedEntityInstance :: Type -> LEntityDef -> Q Dec
 mkProtectedEntityInstance labelType ent = do
     ( fStmts, fExps) <- foldM mkProtectedFieldInstance ([],[]) $ lEntityFields ent
-    let recordCons = RecConE (mkName eName) fExps
+    let recordCons = RecConE (mkName pName) fExps
     let body = DoE $ fStmts ++ [NoBindS (AppE (VarE (mkName "return")) recordCons)]
     let toProtected = FunD (mkName "toProtected") [Clause [AsP entity (ConP (mkName "Entity") [VarP eId,VarP e])] (NormalB body) []]
-    return $ InstanceD [] (AppT (AppT (AppT (ConT (mkName "ProtectedEntity")) labelType) (ConT (mkName eName))) (ConT (mkName ("Protected"++eName)))) [toProtected]
+    return $ InstanceD [] (AppT (AppT (AppT (ConT (mkName "ProtectedEntity")) labelType) (ConT (mkName eName))) (ConT (mkName pName))) [toProtected]
 
     where 
         eName = lEntityHaskell ent
+        pName = "Protected" ++ eName
         e = mkName "_e"
         eId = mkName "_eId"
         entity = mkName "_entity"
@@ -173,7 +174,7 @@ mkProtectedEntityInstance labelType ent = do
                     let lDec = ValD (VarP lName) (NormalB (AppE (VarE taintRead) (VarE entity))) []
                     return $ BindS (VarP vName) $ LetE [lDec] $ AppE (AppE (VarE (mkName "toLabeledTCB")) (VarE lName)) $ DoE [
                             NoBindS $ AppE (VarE (mkName "taintLabel")) (VarE lName),
-                            NoBindS $ AppE (VarE (mkName "return")) (AppE (VarE getter) (VarE entity))
+                            NoBindS $ AppE (VarE (mkName "return")) (AppE (VarE getter) (VarE e))
                           ]
             return ( (newS:sAcc), (newF:fAcc))
 
