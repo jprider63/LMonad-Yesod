@@ -13,8 +13,6 @@ import Database.Persist.Types
 import Language.Haskell.TH
 import Prelude
 
-import LMonad
-
 -- Functions that use TH to generate labeling code. 
 
 mkLabels :: String -> [EntityDef] -> Q [Dec]
@@ -318,11 +316,11 @@ data LabelAnnotation =
 
 
 -- Or just use maybeRead? Or maybe not.
-class Label l => LabelAnnotationConstant l where
-    confLAConstant :: String -> l
-    confLAConstant c = error $ "LabelAnnotationConstant is not defined for constant `" ++ c ++ "`"
-    integLAConstant :: String -> l
-    integLAConstant c = error $ "LabelAnnotationConstant is not defined for constant `" ++ c ++ "`"
+-- class Label l => LabelAnnotationConstant l where
+--     confLAConstant :: String -> l
+--     confLAConstant c = error $ "LabelAnnotationConstant is not defined for constant `" ++ c ++ "`"
+--     integLAConstant :: String -> l
+--     integLAConstant c = error $ "LabelAnnotationConstant is not defined for constant `" ++ c ++ "`"
 
 
 -- EntityId -> String (FieldName) -> l
