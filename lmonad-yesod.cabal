@@ -61,6 +61,7 @@ library
 
   extensions:
       FunctionalDependencies
+      GADTs
       MultiParamTypeClasses
 
   -- Other library packages from which modules are imported.
@@ -69,8 +70,10 @@ library
     , base
     , containers
     , lmonad
+    , mtl
     , persistent
     , tagged
     , template-haskell
     , text
+    , yesod-core
   
