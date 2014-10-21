@@ -85,16 +85,15 @@ mkLEntityInstance labelType ent =
 
     where
         eName = lEntityHaskell ent
-        taintLabel = VarE $ mkName "taintLabel"
         e = mkName "_e"
         mkStmts acc@(rAcc,wAcc,cAcc) field = case lFieldLabelAnnotations field of
             Nothing -> 
                 acc
             _ -> 
                 let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
-                let rStmt = NoBindS $ AppE taintLabel $ AppE (VarE (mkName ("readLabel"++baseName))) (VarE e) in
-                let wStmt = NoBindS $ AppE taintLabel $ AppE (VarE (mkName ("writeLabel"++baseName))) (VarE e) in
-                let cStmt = NoBindS $ AppE taintLabel $ AppE (VarE (mkName ("createLabel"++baseName))) (VarE e) in
+                let rStmt = NoBindS $ AppE (VarE (mkName ("readLabel"++baseName))) (VarE e) in
+                let wStmt = NoBindS $ AppE (VarE (mkName ("writeLabel"++baseName))) (VarE e) in
+                let cStmt = NoBindS $ AppE (VarE (mkName ("createLabel"++baseName))) (VarE e) in
                 ( rStmt:rAcc, wStmt:wAcc, cStmt:cAcc)
 
 mkLabelEntity :: Type -> LEntityDef -> Q [Dec]
