@@ -10,13 +10,19 @@ import Yesod.Core
 -- Internally used to raise the current label on database calls. 
 -- `mkLabels` automatically generates instances of `LEntity` for your model. 
 class Label l => LEntity l e where
-    getLabelRead :: LMonad m => Entity e -> LMonadT l m ()
-    getLabelWrite :: LMonad m => Entity e -> LMonadT l m ()
-    getLabelCreate :: LMonad m => e -> LMonadT l m ()
+    getLabelRead :: LMonad m => Entity e -> LMonadT l m l
+    getLabelWrite :: LMonad m => Entity e -> LMonadT l m l
+    getLabelCreate :: LMonad m => e -> LMonadT l m l
 
-raiseLabelRead :: (Label l, LMonad m) => Entity e -> LMonadT l m l
-raiseLabelWrite :: (Label l, LMonad m) => Entity e -> LMonadT l m l
-raiseLabelCreate :: (Label l, LMonad m) => Entity e -> LMonadT l m l
+raiseLabelRead :: (Label l, LMonad m, LEntity l e) => Entity e -> LMonadT l m ()
+raiseLabelRead e = getLabelRead e >>= taintLabel
+
+raiseLabelWrite :: (Label l, LMonad m, LEntity l e) => Entity e -> LMonadT l m ()
+raiseLabelWrite e = getLabelWrite e >>= taintLabel
+
+raiseLabelCreate :: (Label l, LMonad m, LEntity l e) => e -> LMonadT l m ()
+raiseLabelCreate e = 
+    getLabelCreate e >>= taintLabel
 
 -- | Typeclass for protected entities.
 -- `mkLabels` automatically generates these instances.
