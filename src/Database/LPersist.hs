@@ -1,8 +1,16 @@
+-- TODO: 
+--  Some license things: https://hackage.haskell.org/package/persistent-2.1/docs/Database-Persist-Class.html
+
 module Database.LPersist where
 
+import Control.Exception.Lifted (throwIO)
+import Control.Monad
 import Control.Monad.Reader (ReaderT)
-import Database.Persist (Entity(..),PersistStore,PersistEntity,PersistEntityBackend, Key)
+import Database.Persist (Entity(..),PersistStore,PersistEntity,PersistEntityBackend, Key, Update, Unique, PersistUnique, SelectOpt, Filter, PersistQuery)
 import qualified Database.Persist as Persist
+import Database.Persist.Sql (SqlBackend)
+import qualified Database.Persist.Sql as Persist
+import qualified Data.Text as Text
 import LMonad
 import Yesod.Core
 
@@ -28,6 +36,9 @@ raiseLabelCreate e =
 -- `mkLabels` automatically generates these instances.
 class Label l => ProtectedEntity l e p | e -> p where
     toProtected :: LMonad m => Entity e -> LMonadT l m p
+
+-- | ADT wrapper for protected entities. Analagous to Entity.
+data PEntity l e = forall p . (ProtectedEntity l e p) => PEntity (Key e) p
 
 -- | Persist functions to interact with database. 
 
@@ -89,13 +100,117 @@ delete key = do
         lift $ raiseLabelWrite $ Entity key val
         Persist.delete key
 
--- TODO: Make this more precise by using `EntityField`?
--- update :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) ()
--- update key updates = do
---     res <- Persist.get key
---     whenJust res $ \val -> do
-        
-        
+-- TODO: 
+--  Double check this!!
+-- | This function only works for SqlBackends since we need to be able to rollback transactions.
+update :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) ()
+update = updateHelper (return ()) $ \_ -> return ()
+
+updateGet :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) v
+updateGet key = updateHelper err return key
+    where
+        err = liftIO $ throwIO $ Persist.KeyNotFound $ Prelude.show key
+
+pUpdateGet :: (backend ~ SqlBackend, ProtectedEntity l v p, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) p
+pUpdateGet key = updateHelper err (toProtected . (Entity key)) key
+    where
+        err = liftIO $ throwIO $ Persist.KeyNotFound $ Prelude.show key
+
+getJust :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> ReaderT backend (LMonadT l m) v
+getJust key = get key >>= maybe err return
+    where
+        err = liftIO $ throwIO $ Persist.PersistForeignConstraintUnmet $ Text.pack $ Prelude.show key
+
+-- TODO
+--
+-- belongsTo
+-- belongsToJust
+
+getBy :: (PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) (Maybe (Entity v))
+getBy uniq = do
+    res <- Persist.getBy uniq
+    whenJust res $ lift . raiseLabelRead
+    return res
+
+pGetBy :: (ProtectedEntity l v p, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
+pGetBy uniq = do
+    res <- Persist.getBy uniq
+    --maybe (return Nothing) (\(Entity key ent) -> lift . return . Just . (PEntity key) =<< toProtected ent) res
+    maybe (return Nothing) (\ent -> do
+        pEnt <- lift $ toProtected ent
+        return $ Just $ PEntity (entityKey ent) pEnt
+      ) res
+
+deleteBy :: (ProtectedEntity l v p, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) ()
+deleteBy uniq = do
+    res <- Persist.getBy uniq
+    whenJust res $ \e -> do
+        lift $ raiseLabelWrite e
+        Persist.deleteBy uniq
+
+insertUnique :: (ProtectedEntity l v p, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => v -> ReaderT backend (LMonadT l m) (Maybe (Key v))
+insertUnique val = do
+    lift $ raiseLabelCreate val
+    Persist.insertUnique val
+
+-- TODO
+--  upsert
+--  getByValue
+--  insertBy
+--  replaceUnique
+--  checkUnique
+--  onlyUnique
+--
+--  selectSourceRes
+--  selectKeysRes
+
+updateWhere :: (backend ~ SqlBackend, PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [Update v] -> ReaderT backend (LMonadT l m) ()
+updateWhere filts upts = do
+    res <- Persist.selectList filts []
+    -- `updateGet` should rollback transaction if any checks fail
+    mapM_ (\e -> 
+        let k = entityKey e in 
+        (lift $ raiseLabelWrite e) >> 
+            (updateGet (entityKey e) upts) >>=
+                (lift . raiseLabelWrite . (Entity k))
+      ) res
+
+deleteWhere :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> ReaderT backend (LMonadT l m) ()
+deleteWhere filts = do
+    res <- Persist.selectList filts []
+    lift $ mapM_ raiseLabelWrite res
+    Persist.deleteWhere filts
+
+selectFirst :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe (Entity v))
+selectFirst filts opts = do
+    res <- Persist.selectFirst filts opts
+    whenJust res $ lift . raiseLabelRead
+    return res
+
+count :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> ReaderT backend (LMonadT l m) Int
+count filts = do
+    res <- Persist.selectList filts []
+    lift $ foldM (\acc e -> (raiseLabelWrite e) >> (return $ acc + 1)) 0 res
+
+-- TODO
+--  selectSource
+--  selectKeys
+
+selectList :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [Entity v]
+selectList filts opts = do
+    l <- Persist.selectList filts opts
+    lift $ mapM_ raiseLabelRead l
+    return l
+
+selectKeysList :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [Key v]
+selectKeysList filts opts = do
+    l <- Persist.selectList filts opts
+    lift $ mapM_ raiseLabelRead l
+    return $ map entityKey l
+    
+-- TODO
+--  deleteCascade
+--  deleteCascadeWhere
 
 
 
@@ -107,3 +222,19 @@ whenJust m f = case m of
         f v
     Nothing ->
         return ()
+
+updateHelper :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (LMonadT l m a) -> (v -> LMonadT l m a) -> (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) a
+updateHelper n j key updates = do
+    res <- Persist.get key
+    maybe (lift n) (\oldVal -> do
+        lift $ raiseLabelWrite $ Entity key oldVal
+        newVal <- Persist.updateGet key updates
+        newL <- lift $ getLabelWrite $ Entity key newVal
+        l <- lift $ lubCurrentLabel newL
+        guard <- lift $ canSetLabel l
+        unless guard
+            -- Rollback
+            Persist.transactionUndo
+        lift $ setLabel l
+        lift $ j newVal
+      ) res

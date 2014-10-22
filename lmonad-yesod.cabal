@@ -62,6 +62,7 @@ library
   extensions:
       FunctionalDependencies
       GADTs
+      RankNTypes
       MultiParamTypeClasses
 
   -- Other library packages from which modules are imported.
@@ -69,6 +70,7 @@ library
       attoparsec
     , base
     , containers
+    , lifted-base
     , lmonad
     , mtl
     , persistent
