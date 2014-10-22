@@ -47,6 +47,8 @@ mkLabels labelS ents =
                         let con = ConT $ mkName $ Text.unpack conT in
                         List.foldl' (\acc typ -> AppT acc (ConT (mkName (Text.unpack typ)))) con rest
 
+
+
 -- | Create protected ADTs for the models in Persist's DSL. 
 -- Ex: ProtectedUser is created for protected version of User.
 --
@@ -77,26 +79,32 @@ mkProtectedEntity labelType ent =
             in
             (fName, strict, typ)
 
--- | Create LEntity instance for a given entity.
+
+
+-- | Create LEntity instance for a given entity. Joins all field label calls
 -- Ex:
 --
 -- instance LEntity (DCLabel Principal) User where
 --     getLabelRead _e = 
--- 
+--         readLabelUserEmail _e
+--     getLabelWrite _e =
+--         writeLabelUserEmail _e
+--     getLabelCreate _e =
+--         createLabelUserEmail _e
 
 mkLEntityInstance :: Type -> LEntityDef -> Q Dec
 mkLEntityInstance labelType ent = 
-    let (rStmts,wStmts,cStmts) = List.foldl' mkStmts ([],[],[]) (lEntityFields ent) in
+    let expr = List.foldl' mkStmts Nothing (lEntityFields ent) in
+    let (rExpr, wExpr, cExpr) = case expr of 
+          Nothing ->
+            ( bottom, bottom, bottom)
+          Just exprs ->
+            exprs
+    in
     let funcs = [
-            FunD (mkName "getLabelRead") [Clause [VarP e] (NormalB (
-                    DoE rStmts
-                )) []],
-            FunD (mkName "getLabelWrite") [Clause [VarP e] (NormalB (
-                    DoE wStmts
-                )) []],
-            FunD (mkName "getLabelCreate") [Clause [VarP e] (NormalB (
-                    DoE cStmts
-                )) []]
+            FunD (mkName "getLabelRead") [Clause [VarP e] (NormalB rExpr) []],
+            FunD (mkName "getLabelWrite") [Clause [VarP e] (NormalB wExpr) []],
+            FunD (mkName "getLabelCreate") [Clause [VarP e] (NormalB cExpr) []]
           ]
     in
     return $ InstanceD [] (AppT (AppT (ConT (mkName "LEntity")) labelType) (ConT (mkName eName))) funcs
@@ -106,15 +114,21 @@ mkLEntityInstance labelType ent =
         e = mkName "_e"
         bottom = VarE $ mkName "bottom"
         appJoin = AppE . (AppE (VarE (mkName "lub")))
-        mkStmts acc@(rAcc,wAcc,cAcc) field = case lFieldLabelAnnotations field of
+        mkStmts acc field = case lFieldLabelAnnotations field of
             Nothing -> 
                 acc
             _ -> 
                 let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
-                let rStmt = NoBindS $ AppE (VarE (mkName ("readLabel"++baseName))) (VarE e) in
-                let wStmt = NoBindS $ AppE (VarE (mkName ("writeLabel"++baseName))) (VarE e) in
-                let cStmt = NoBindS $ AppE (VarE (mkName ("createLabel"++baseName))) (VarE e) in
-                ( rStmt:rAcc, wStmt:wAcc, cStmt:cAcc)
+                let rExpr = AppE (VarE (mkName ("readLabel"++baseName))) (VarE e) in
+                let wExpr = AppE (VarE (mkName ("writeLabel"++baseName))) (VarE e) in
+                let cExpr = AppE (VarE (mkName ("createLabel"++baseName))) (VarE e) in
+                Just $ case acc of
+                    Nothing ->
+                        ( rExpr, wExpr, cExpr)
+                    Just (rAcc, wAcc, cAcc) ->
+                        ( appJoin rExpr rAcc, appJoin wExpr wAcc, appJoin cExpr cAcc)
+
+
 
 -- | Creates functions that get labels for each field in an entity. 
 -- Ex:
@@ -147,11 +161,11 @@ mkLabelEntity labelType ent =
                 bottom
             h:t -> 
                 let appF ann = case ann of
-                    LAId ->
+                      LAId ->
                         AppE f $ VarE eId
-                    LAConst c ->
+                      LAConst c ->
                         AppE f $ LitE $ StringL c
-                    LAField fName ->
+                      LAField fName ->
                         let getter = VarE $ mkName $ (headToLower eName) ++ (headToUpper fName) in
                         AppE f $ AppE getter $ VarE e
                 in
@@ -178,6 +192,8 @@ mkLabelEntity labelType ent =
                     let cBody = combAnnotations toIntegLabel eId e createAnns in
                     let createDef = FunD createName [Clause [VarP e] (NormalB cBody) []] in
                     [readSig,readDef,writeSig,writeDef,createSig,createDef]
+
+
 
 -- | Create ProtectedEntity instance for given entity.
 -- Ex:
@@ -228,6 +244,8 @@ mkProtectedEntityInstance labelType ent = do
                             NoBindS $ AppE (VarE (mkName "return")) (AppE (VarE getter) (VarE e))
                           ]
             return ( (newS:sAcc), (newF:fAcc))
+
+
 
 data LEntityDef = LEntityDef
     { lEntityHaskell :: !String
