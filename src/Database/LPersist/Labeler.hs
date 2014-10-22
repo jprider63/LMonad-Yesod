@@ -13,7 +13,17 @@ import Database.Persist.Types
 import Language.Haskell.TH
 import Prelude
 
--- Functions that use TH to generate labeling code. 
+-- | Functions that use TH to generate labeling code. 
+-- All examples in this documentation reference the following Persist model:
+--
+--   User
+--       ident Text
+--       password Text
+--       email Text <Const Admin || Id, Id, _>
+--       admin Bool
+--   
+--       UniqueEmail email
+--       deriving Typeable
 
 mkLabels :: String -> [EntityDef] -> Q [Dec]
 mkLabels labelS ents = 
@@ -46,6 +56,7 @@ mkLabels labelS ents =
 --       , pUserEmail :: Labeled (DCLabel Principal) Text
 --       , pUserAdmin :: Bool
 --     }
+
 mkProtectedEntity :: Type -> LEntityDef -> Q Dec
 mkProtectedEntity labelType ent =
     let pFields = map mkProtectedField (lEntityFields ent) in
@@ -65,6 +76,13 @@ mkProtectedEntity labelType ent =
                     AppT (AppT (ConT (mkName "Labeled")) labelType) rawType
             in
             (fName, strict, typ)
+
+-- | Create LEntity instance for a given entity.
+-- Ex:
+--
+-- instance LEntity (DCLabel Principal) User where
+--     getLabelRead _e = 
+-- 
 
 mkLEntityInstance :: Type -> LEntityDef -> Q Dec
 mkLEntityInstance labelType ent = 
@@ -86,6 +104,8 @@ mkLEntityInstance labelType ent =
     where
         eName = lEntityHaskell ent
         e = mkName "_e"
+        bottom = VarE $ mkName "bottom"
+        appJoin = AppE . (AppE (VarE (mkName "lub")))
         mkStmts acc@(rAcc,wAcc,cAcc) field = case lFieldLabelAnnotations field of
             Nothing -> 
                 acc
@@ -95,6 +115,21 @@ mkLEntityInstance labelType ent =
                 let wStmt = NoBindS $ AppE (VarE (mkName ("writeLabel"++baseName))) (VarE e) in
                 let cStmt = NoBindS $ AppE (VarE (mkName ("createLabel"++baseName))) (VarE e) in
                 ( rStmt:rAcc, wStmt:wAcc, cStmt:cAcc)
+
+-- | Creates functions that get labels for each field in an entity. 
+-- Ex:
+--
+-- readLabelUserEmail :: Entity User -> DCLabel Principal
+-- readLabelUserEmail (Entity _eId _entity) =
+--     ((toConfidentialityLabel "Admin") `glb` (toConfidentialityLabel _eId))
+--
+-- createLabelUserEmail :: Entity User -> DCLabel Principal
+-- createLabelUserEmail (Entity _eId _entity) = 
+--     toIntegrityLabel _eId
+--
+-- writeLabelUserEmail :: Entity User -> DCLabel Principal
+-- writeLabelUserEmail (Entity _eId _entity) = 
+--     bottom
 
 mkLabelEntity :: Type -> LEntityDef -> Q [Dec]
 mkLabelEntity labelType ent = 
@@ -106,17 +141,21 @@ mkLabelEntity labelType ent =
         toConfLabel = VarE $ mkName "toConfidentialityLabel"
         toIntegLabel = VarE $ mkName "toIntegrityLabel"
         bottom = VarE $ mkName "bottom"
-        appJoin = AppE . (AppE (VarE (mkName "lub")))
-        combAnnotations f eId e = 
-            List.foldl' (\acc ann -> appJoin acc $ case ann of 
-                LAId ->
-                    AppE f $ VarE eId
-                LAConst c ->
-                    AppE f $ LitE $ StringL c
-                LAField fName ->
-                    let getter = VarE $ mkName $ (headToLower eName) ++ (headToUpper fName) in
-                    AppE f $ AppE getter $ VarE e
-              ) bottom
+        appMeet = AppE . (AppE (VarE (mkName "glb")))
+        combAnnotations f eId e l = case l of
+            [] ->
+                bottom
+            h:t -> 
+                let appF ann = case ann of
+                    LAId ->
+                        AppE f $ VarE eId
+                    LAConst c ->
+                        AppE f $ LitE $ StringL c
+                    LAField fName ->
+                        let getter = VarE $ mkName $ (headToLower eName) ++ (headToUpper fName) in
+                        AppE f $ AppE getter $ VarE e
+                in
+                List.foldl' (\acc ann -> appMeet acc $ appF ann) (appF h) t
             
         mkLabelField field = 
             case lFieldLabelAnnotations field of
@@ -139,6 +178,21 @@ mkLabelEntity labelType ent =
                     let cBody = combAnnotations toIntegLabel eId e createAnns in
                     let createDef = FunD createName [Clause [VarP e] (NormalB cBody) []] in
                     [readSig,readDef,writeSig,writeDef,createSig,createDef]
+
+-- | Create ProtectedEntity instance for given entity.
+-- Ex:
+--
+-- instance ProtectedEntity (DCLabel Principal) User ProtectedUser where
+--     toProtected _entity@(Entity _eId _e) = do
+--         let ident = userIdent _e
+--         let password = userPassword _e
+--         email <- 
+--             let l = readLabelUserEmail _entity in
+--             toLabeledTCB l $ do
+--                 taintLabel l
+--                 return $ userEmail _e
+--          let admin = userAdmin _e
+--          return $ ProtectedUser ident password email admin
 
 mkProtectedEntityInstance :: Type -> LEntityDef -> Q Dec
 mkProtectedEntityInstance labelType ent = do
@@ -325,17 +379,6 @@ data LabelAnnotation =
 -- EntityId -> String (FieldName) -> l
 
 
-
--- Example:
---   User
---       ident Text
---       password Text
---       email Text <Const Admin || Id, Id, _>
---       admin Bool
---   
---       UniqueEmail email
---       deriving Typeable
---
 
 -- User defined:
 -- instance LabelAnnotationConstant (DCLabel Principal) where
