@@ -18,19 +18,18 @@ import Yesod.Core
 -- Internally used to raise the current label on database calls. 
 -- `mkLabels` automatically generates instances of `LEntity` for your model. 
 class Label l => LEntity l e where
-    getLabelRead :: LMonad m => Entity e -> LMonadT l m l
-    getLabelWrite :: LMonad m => Entity e -> LMonadT l m l
-    getLabelCreate :: LMonad m => e -> LMonadT l m l
+    getLabelRead :: Entity e -> l
+    getLabelWrite :: Entity e -> l
+    getLabelCreate :: e -> l
 
 raiseLabelRead :: (Label l, LMonad m, LEntity l e) => Entity e -> LMonadT l m ()
-raiseLabelRead e = getLabelRead e >>= taintLabel
+raiseLabelRead e = taintLabel $ getLabelRead e
 
 raiseLabelWrite :: (Label l, LMonad m, LEntity l e) => Entity e -> LMonadT l m ()
-raiseLabelWrite e = getLabelWrite e >>= taintLabel
+raiseLabelWrite e = taintLabel $ getLabelWrite e
 
 raiseLabelCreate :: (Label l, LMonad m, LEntity l e) => e -> LMonadT l m ()
-raiseLabelCreate e = 
-    getLabelCreate e >>= taintLabel
+raiseLabelCreate e = taintLabel $ getLabelCreate e
 
 -- | Typeclass for protected entities.
 -- `mkLabels` automatically generates these instances.
@@ -229,7 +228,7 @@ updateHelper n j key updates = do
     maybe (lift n) (\oldVal -> do
         lift $ raiseLabelWrite $ Entity key oldVal
         newVal <- Persist.updateGet key updates
-        newL <- lift $ getLabelWrite $ Entity key newVal
+        let newL = getLabelWrite $ Entity key newVal
         l <- lift $ lubCurrentLabel newL
         guard <- lift $ canSetLabel l
         unless guard
