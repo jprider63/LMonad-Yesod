@@ -70,13 +70,13 @@ mkLEntityInstance :: Type -> LEntityDef -> Q Dec
 mkLEntityInstance labelType ent = 
     let (rStmts,wStmts,cStmts) = List.foldl' mkStmts ([],[],[]) (lEntityFields ent) in
     let funcs = [
-            FunD (mkName "raiseLabelRead") [Clause [VarP e] (NormalB (
+            FunD (mkName "getLabelRead") [Clause [VarP e] (NormalB (
                     DoE rStmts
                 )) []],
-            FunD (mkName "raiseLabelWrite") [Clause [VarP e] (NormalB (
+            FunD (mkName "getLabelWrite") [Clause [VarP e] (NormalB (
                     DoE wStmts
                 )) []],
-            FunD (mkName "raiseLabelCreate") [Clause [VarP e] (NormalB (
+            FunD (mkName "getLabelCreate") [Clause [VarP e] (NormalB (
                     DoE cStmts
                 )) []]
           ]
