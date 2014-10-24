@@ -1,14 +1,49 @@
+{-# LANGUAGE TypeFamilies #-}
+
 -- TODO: 
 --  Some license things: https://hackage.haskell.org/package/persistent-2.1/docs/Database-Persist-Class.html
 
-module Database.LPersist where
+module Database.LPersist (
+      LEntity(..)
+    , raiseLabelRead
+    , raiseLabelWrite
+    , raiseLabelCreate
+    , YesodLPersist (..)
+    , lDefaultRunDB
+    , ProtectedEntity(..)
+    , PEntity(..)
+    , get
+    , pGet
+    , insert
+    , insert_
+    , insertMany
+    , insertKey
+    , repsert
+    , replace
+    , delete
+    , update
+    , updateGet
+    , pUpdateGet
+    , getJust
+    , getBy
+    , pGetBy
+    , deleteBy
+    , insertUnique
+    , updateWhere
+    , deleteWhere
+    , selectFirst
+    , count
+    , selectList
+    , selectKeysList
+    ) where
 
 import Control.Exception.Lifted (throwIO)
 import Control.Monad
 import Control.Monad.Reader (ReaderT)
 import Database.Persist (Entity(..),PersistStore,PersistEntity,PersistEntityBackend, Key, Update, Unique, PersistUnique, SelectOpt, Filter, PersistQuery)
+--import Yesod.Persist as Export (runDB)
 import qualified Database.Persist as Persist
-import Database.Persist.Sql (SqlBackend)
+import Database.Persist.Sql (SqlBackend, PersistConfig, PersistConfigPool, PersistConfigBackend)
 import qualified Database.Persist.Sql as Persist
 import qualified Data.Text as Text
 import LMonad
@@ -38,6 +73,23 @@ class Label l => ProtectedEntity l e p | e -> p where
 
 -- | ADT wrapper for protected entities. Analagous to Entity.
 data PEntity l e = forall p . (ProtectedEntity l e p) => PEntity (Key e) p
+
+-- | How to run database functions.
+
+class PersistConfig c => YesodLPersist site c where
+    type YesodPersistBackend site
+    runDB :: (Label l, m ~ HandlerT site IO, PersistConfig c) => ReaderT c (LMonadT l m) a -> LMonadT l m a
+
+lDefaultRunDB :: (Label l, PersistConfig c, LMonad m, m ~ HandlerT site IO) => (site -> c)
+                      -> (site -> PersistConfigPool c)
+                      -> PersistConfigBackend c (LMonadT l m) b
+                      -> LMonadT l m b
+lDefaultRunDB getConfig getPool f = do
+    master <- lLift getYesod
+    Persist.runPool
+        (getConfig master)
+        f
+        (getPool master)
 
 -- | Persist functions to interact with database. 
 
