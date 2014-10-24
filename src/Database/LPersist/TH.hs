@@ -47,17 +47,16 @@ import Database.Persist
 -- import Database.Persist.Sql (Migration, migrate, SqlBackend, PersistFieldSql, IsSqlKey (..))
 import Database.Persist.Quasi
 import Database.LPersist.Quasi
-import Language.Haskell.TH.Lib (varE)
 import Language.Haskell.TH.Quote
 import Language.Haskell.TH.Syntax
 -- import Data.Char (toLower, toUpper)
 -- import Control.Monad (forM, (<=<), mzero)
 import qualified System.IO as SIO
-import Data.Text (pack, Text, append, unpack, concat, uncons, cons, stripPrefix, stripSuffix)
+import Data.Text (pack, Text, unpack, concat, stripPrefix, stripSuffix)
 -- import Data.Text.Encoding (decodeUtf8)
 import qualified Data.Text.IO as TIO
 -- import Data.List (foldl')
-import Data.Maybe (isJust, listToMaybe, mapMaybe, fromMaybe)
+import Data.Maybe (isJust, listToMaybe, mapMaybe)
 -- import Data.Monoid (mappend, mconcat)
 -- import Text.Read (readPrec, lexP, step, prec, parens, Lexeme(Ident))
 import qualified Data.Map as M
