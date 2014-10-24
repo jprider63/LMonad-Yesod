@@ -76,7 +76,7 @@ data PEntity l e = forall p . (ProtectedEntity l e p) => PEntity (Key e) p
 
 -- | How to run database functions.
 
-class PersistConfig c => YesodLPersist site c where
+class YesodLPersist site where
     type YesodPersistBackend site
     runDB :: (Label l, m ~ HandlerT site IO, PersistConfig c) => ReaderT c (LMonadT l m) a -> LMonadT l m a
 
