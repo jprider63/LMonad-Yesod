@@ -78,4 +78,5 @@ library
     , template-haskell
     , text
     , yesod-core
+    , yesod-persistent
   

@@ -41,13 +41,13 @@ import Control.Exception.Lifted (throwIO)
 import Control.Monad
 import Control.Monad.Reader (ReaderT)
 import Database.Persist (Entity(..),PersistStore,PersistEntity,PersistEntityBackend, Key, Update, Unique, PersistUnique, SelectOpt, Filter, PersistQuery)
---import Yesod.Persist as Export (runDB)
 import qualified Database.Persist as Persist
 import Database.Persist.Sql (SqlBackend, PersistConfig, PersistConfigPool, PersistConfigBackend)
 import qualified Database.Persist.Sql as Persist
 import qualified Data.Text as Text
 import LMonad
 import Yesod.Core
+import Yesod.Persist (YesodPersist(..))
 
 -- | `LEntity` typeclass to taint labels when reading, writing, and creating entity fields.
 -- Internally used to raise the current label on database calls. 
@@ -76,9 +76,8 @@ data PEntity l e = forall p . (ProtectedEntity l e p) => PEntity (Key e) p
 
 -- | How to run database functions.
 
-class YesodLPersist site where
-    type YesodPersistBackend site
-    runDB :: (Label l, m ~ HandlerT site IO, PersistConfig c) => ReaderT c (LMonadT l m) a -> LMonadT l m a
+class YesodPersist site => YesodLPersist site where
+    runDB :: (Label l, m ~ HandlerT site IO) => ReaderT (YesodPersistBackend site) (LMonadT l m) a -> LMonadT l m a
 
 lDefaultRunDB :: (Label l, PersistConfig c, LMonad m, m ~ HandlerT site IO) => (site -> c)
                       -> (site -> PersistConfigPool c)
