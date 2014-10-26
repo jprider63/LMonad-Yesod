@@ -164,7 +164,7 @@ mkLabelEntity labelType ent =
                       LAId ->
                         AppE f $ VarE eId
                       LAConst c ->
-                        AppE f $ LitE $ StringL c
+                        AppE f $ SigE (LitE $ StringL c) $ ConT $ mkName "String"
                       LAField fName ->
                         let getter = VarE $ mkName $ (headToLower eName) ++ (headToUpper fName) in
                         AppE f $ AppE getter $ VarE e
