@@ -33,7 +33,7 @@ mkLabels labelS ents =
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
     protected <- mapM (mkProtectedEntity labelType) entsL
     protectedInstance <- mapM (mkProtectedEntityInstance labelType) entsL
-    let serializedLEntityDef = map mkSerializedLEntityDef entsL
+    let serializedLEntityDef = concat $ map mkSerializedLEntityDef entsL
     return $ concat [concat labelFs, lEntityInstance, protected, protectedInstance, serializedLEntityDef]
 
     where
@@ -251,20 +251,24 @@ mkProtectedEntityInstance labelType ent = do
 -- | Serialize LEntityDefs so that lsql can access them in other modules. 
 -- Ex:
 --
--- lEntityDefUser = LEntityDef "User" [LFieldDef "ident" (FTTypeCon "Text") True, ...]
-mkSerializedLEntityDef :: LEntityDef -> Dec
+-- lEntityDefUser = LEntityDef "User" [LFieldDef "ident" (FTTypeCon "Text") True Nothing, ...]
+mkSerializedLEntityDef :: LEntityDef -> [Dec]
 mkSerializedLEntityDef ent = 
-    let str = StringL $ lEntityHaskell ent in
+    let str = LitE $ StringL $ lEntityHaskell ent in
     let fields = mkSerializedLEntityDef $ lEntityFields ent in
-    let body = AppE (AppE 'LFieldDef str) fields in
+    let body = AppE (AppE (ConE 'LFieldDef) str) fields in
+    let name = mkName $ "lEntityDef" ++ (lEntityHaskell ent) in
+    let sig = SigD name $ ConT 'LEntityDef in
+    let def = ValD (VarP name) (NormalB body) [] in
+    [ sig, def]
 
     where
-        mkSerializedText t = SigE (LitE $ StringL $ Text.unpack t) (ConT 'Text)
-        mkSerializedFieldType typ = case lFieldType field of
+        mkSerializedText t = SigE (LitE $ StringL $ Text.unpack t) (ConT ''Text)
+        mkSerializedFieldType typ = case typ of
             FTTypeCon moduleM' name' ->
-                let moduleM = maybe (ConE 'Nothing) (\m -> AppE (ConE 'Just) (mkSerializedText m)) moduleM'
+                let moduleM = maybe (ConE 'Nothing) (\m -> AppE (ConE 'Just) (mkSerializedText m)) moduleM' in
                 let name = mkSerializedText name' in
-                AppE (AppE 'FTTypeCon moduleM) name
+                AppE (AppE (ConE 'FTTypeCon) moduleM) name
             FTApp typ1' typ2' ->
                 let typ1 = mkSerializedFieldType typ1' in
                 let typ2 = mkSerializedFieldType typ2' in
@@ -281,10 +285,16 @@ mkSerializedLEntityDef ent =
                 AppE (ConE 'LAField) (LitE $ StringL s)
         mkSerializedLEntityDef fields' = 
             let helper field = 
-                  let name = StringL $ lFieldHaskell field in
+                  let name = LitE $ StringL $ lFieldHaskell field in
                   let typ = mkSerializedFieldType $ lFieldType field in
                   let strict = ConE $ if lFieldStrict field then 'True else 'False in
-                  let anns = ListE $ map mkSerializedLabelAnnotation $ lFieldAnnotations field in
+                  let anns = maybe (ConE 'Nothing) (\( r', w', c') -> 
+                            let r = ListE $ map mkSerializedLabelAnnotation r' in
+                            let w = ListE $ map mkSerializedLabelAnnotation w' in
+                            let c = ListE $ map mkSerializedLabelAnnotation c' in
+                            AppE (ConE 'Just) $ TupE [ r, w, c]
+                        ) $ lFieldLabelAnnotations field 
+                  in
                   AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns
             in
             ListE $ map helper fields'
