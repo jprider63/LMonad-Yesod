@@ -249,7 +249,7 @@ mkProtectedEntityInstance labelType ent = do
 
 data LEntityDef = LEntityDef
     { lEntityHaskell :: !String
-    , lEntityDB      :: !String
+--     , lEntityDB      :: !String
 --     , lEntityId      :: !FieldDef
 --     , lEntityAttrs   :: ![Attr]
     , lEntityFields  :: ![LFieldDef]
@@ -262,7 +262,7 @@ data LEntityDef = LEntityDef
 
 data LFieldDef = LFieldDef
     { lFieldHaskell   :: !String -- ^ name of the field
-    , lFieldDB        :: !String
+--    , lFieldDB        :: !String
     , lFieldType      :: !FieldType
 --    , lFieldSqlType   :: !SqlType
 --    , lFieldAttrs     :: ![Attr]    -- ^ user annotations for a field
@@ -275,14 +275,14 @@ data LFieldDef = LFieldDef
 toLEntityDef :: EntityDef -> LEntityDef
 toLEntityDef ent = LEntityDef {
         lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
-      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
+--      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
       , lEntityFields = map toLFieldDef (entityFields ent)
     }
 
 toLFieldDef :: FieldDef -> LFieldDef
 toLFieldDef f = LFieldDef {
         lFieldHaskell = Text.unpack $ unHaskellName $ fieldHaskell f
-      , lFieldDB = Text.unpack $ unDBName $ fieldDB f
+--       , lFieldDB = Text.unpack $ unDBName $ fieldDB f
       , lFieldType = fieldType f
       , lFieldStrict = fieldStrict f
       , lFieldLabelAnnotations = labels
