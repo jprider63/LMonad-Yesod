@@ -33,7 +33,8 @@ mkLabels labelS ents =
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
     protected <- mapM (mkProtectedEntity labelType) entsL
     protectedInstance <- mapM (mkProtectedEntityInstance labelType) entsL
-    return $ concat [concat labelFs, lEntityInstance, protected, protectedInstance]
+    let serializedLEntityDef = map mkSerializedLEntityDef entsL
+    return $ concat [concat labelFs, lEntityInstance, protected, protectedInstance, serializedLEntityDef]
 
     where
         labelType = 
@@ -246,6 +247,47 @@ mkProtectedEntityInstance labelType ent = do
             return ( (newS:sAcc), (newF:fAcc))
 
 
+
+-- | Serialize LEntityDefs so that lsql can access them in other modules. 
+-- Ex:
+--
+-- lEntityDefUser = LEntityDef "User" [LFieldDef "ident" (FTTypeCon "Text") True, ...]
+mkSerializedLEntityDef :: LEntityDef -> Dec
+mkSerializedLEntityDef ent = 
+    let str = StringL $ lEntityHaskell ent in
+    let fields = mkSerializedLEntityDef $ lEntityFields ent in
+    let body = AppE (AppE 'LFieldDef str) fields in
+
+    where
+        mkSerializedText t = SigE (LitE $ StringL $ Text.unpack t) (ConT 'Text)
+        mkSerializedFieldType typ = case lFieldType field of
+            FTTypeCon moduleM' name' ->
+                let moduleM = maybe (ConE 'Nothing) (\m -> AppE (ConE 'Just) (mkSerializedText m)) moduleM'
+                let name = mkSerializedText name' in
+                AppE (AppE 'FTTypeCon moduleM) name
+            FTApp typ1' typ2' ->
+                let typ1 = mkSerializedFieldType typ1' in
+                let typ2 = mkSerializedFieldType typ2' in
+                AppE (AppE (ConE 'FTApp) typ1) typ2
+            FTList typ' ->
+                let typ = mkSerializedFieldType typ' in
+                AppE (ConE 'FTList) typ
+        mkSerializedLabelAnnotation la = case la of 
+            LAId ->
+                ConE 'LAId
+            LAConst s ->
+                AppE (ConE 'LAConst) (LitE $ StringL s)
+            LAField s -> 
+                AppE (ConE 'LAField) (LitE $ StringL s)
+        mkSerializedLEntityDef fields' = 
+            let helper field = 
+                  let name = StringL $ lFieldHaskell field in
+                  let typ = mkSerializedFieldType $ lFieldType field in
+                  let strict = ConE $ if lFieldStrict field then 'True else 'False in
+                  let anns = ListE $ map mkSerializedLabelAnnotation $ lFieldAnnotations field in
+                  AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns
+            in
+            ListE $ map helper fields'
 
 data LEntityDef = LEntityDef
     { lEntityHaskell :: !String
