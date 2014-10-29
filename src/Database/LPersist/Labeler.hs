@@ -256,9 +256,9 @@ mkSerializedLEntityDef :: LEntityDef -> [Dec]
 mkSerializedLEntityDef ent = 
     let str = LitE $ StringL $ lEntityHaskell ent in
     let fields = mkSerializedLEntityDef $ lEntityFields ent in
-    let body = AppE (AppE (ConE 'LFieldDef) str) fields in
+    let body = AppE (AppE (ConE 'LEntityDef) str) fields in
     let name = mkName $ "lEntityDef" ++ (lEntityHaskell ent) in
-    let sig = SigD name $ ConT 'LEntityDef in
+    let sig = SigD name $ ConT ''LEntityDef in
     let def = ValD (VarP name) (NormalB body) [] in
     [ sig, def]
 
@@ -423,81 +423,9 @@ headToLower :: String -> String
 headToLower (h:t) = (Char.toLower h):t
 headToLower s = error $ "Invalid name `" ++ s ++ "`"
 
-
-
-
-
-
-
-
-
 data LabelAnnotation = 
     LAId
   | LAConst String
   | LAField String
     deriving (Show, Eq, Read, Ord)
-
-
--- Or just use maybeRead? Or maybe not.
--- class Label l => LabelAnnotationConstant l where
---     confLAConstant :: String -> l
---     confLAConstant c = error $ "LabelAnnotationConstant is not defined for constant `" ++ c ++ "`"
---     integLAConstant :: String -> l
---     integLAConstant c = error $ "LabelAnnotationConstant is not defined for constant `" ++ c ++ "`"
-
-
--- EntityId -> String (FieldName) -> l
-
-
-
--- User defined:
--- instance LabelAnnotationConstant (DCLabel Principal) where
---     parseLAConstant "Admin" = toDCLabel [PrincipalAdmin] []
---     parseLAConstant _ = error "Undefined constant"
--- What about admin writes?? 
---      need conf/integrityPrincipalToLabel classes???
-
--- Generated:
--- 
--- -- mkLabelFieldChecks
--- readLabelUserEmail :: Entity User -> UserLabel
--- readLabelUserEmail (Entity uId _) = UserLabel
---     (UserLabelSet (Set.singleton uId))
---     (UserLabelSet Set.empty)
--- 
--- writeLabelUserEmail :: Entity User -> UserLabel
--- writeLabelUserEmail (Entity uId _) = UserLabel
---     (UserLabelSet Set.empty)
---     (UserLabelSet (Set.singleton uId))
--- 
--- createLabelUserEmail :: User -> UserLabel
--- createLabelUserEmail _ = bottom
--- 
--- -- mkLEntity -- TODO: how does this need to change??
--- 
--- -- mkProtected
--- data ProtectedUser = ProtectedUser {
---         pUserIdent :: Text
---       , pUserPassword :: Text
---       , pUserEmail :: Labeled (DCLabel Principal) Text
---       , pUserAdmin :: Bool
---     }
--- 
--- -- mkProtectedEntity
--- instance ProtectedEntity UserLabel User ProtectedUser where
---     toProtected user' = do
---         let (Entity uId user) = user'
---         let ident = userIdent user
---         let password = userPassword user
---         email <- toLabeledTCB (readUseremail user') $ do
---             taintLabel $ readUseremail user'
---             return $ userEmail user
---         let admin = userAdmin user
---         let protectedUser = ProtectedUser ident password email admin
---         return protectedUser
--- 
-
-
-
-
 
