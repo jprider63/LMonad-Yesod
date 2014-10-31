@@ -229,10 +229,10 @@ mkLabelEntity' labelType ent =
                     acc
                   LAId ->
                     let name = mkName $ eName ++ "Id" in
-                    AppT (ConT name) acc
+                    AppT (AppT ArrowT (ConT name)) acc
                   LAField s -> 
                     let typ = getLEntityFieldType ent s in
-                    AppT typ acc
+                    AppT (AppT ArrowT typ) acc
             in
             List.foldr helper labelType
         mkPattern = 
@@ -264,9 +264,9 @@ mkLabelEntity' labelType ent =
                     []
                 Just ( readAnns, writeAnns, createAnns) ->
                     let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
-                    let readName = mkName $ "readLabel" ++ baseName in
-                    let writeName = mkName $ "writeLabel" ++ baseName in
-                    let createName = mkName $ "createLabel" ++ baseName in
+                    let readName = mkName $ "readLabel" ++ baseName ++ "'" in
+                    let writeName = mkName $ "writeLabel" ++ baseName ++ "'" in
+                    let createName = mkName $ "createLabel" ++ baseName ++ "'" in
                     let readSig = SigD readName $ mkType readAnns in
                     let readDef = FunD readName [Clause (mkPattern readAnns) (NormalB $ mkBody toConfLabel readAnns) []] in
                     let writeSig = SigD writeName $ mkType writeAnns in
