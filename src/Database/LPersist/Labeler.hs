@@ -28,13 +28,14 @@ import Prelude
 mkLabels :: String -> [EntityDef] -> Q [Dec]
 mkLabels labelS ents = 
     let entsL = map toLEntityDef ents in
+    let labelFs' = concat $ map (mkLabelEntity' labelType) entsL in
     do
     labelFs <- mapM (mkLabelEntity labelType) entsL
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
     protected <- mapM (mkProtectedEntity labelType) entsL
     protectedInstance <- mapM (mkProtectedEntityInstance labelType) entsL
     let serializedLEntityDef = concat $ map mkSerializedLEntityDef entsL
-    return $ concat [concat labelFs, lEntityInstance, protected, protectedInstance, serializedLEntityDef]
+    return $ concat [concat labelFs, labelFs', lEntityInstance, protected, protectedInstance, serializedLEntityDef]
 
     where
         labelType = 
@@ -193,6 +194,86 @@ mkLabelEntity labelType ent =
                     let cBody = combAnnotations toIntegLabel eId e createAnns in
                     let createDef = FunD createName [Clause [VarP e] (NormalB cBody) []] in
                     [readSig,readDef,writeSig,writeDef,createSig,createDef]
+
+
+
+-- | Similar to mkLabelEntity, except this function creates code that returns the labels given what the label depends on instead of the entire entity. 
+-- Ex:
+--
+-- readLabelUserEmail' :: UserId -> DCLabel Principal
+-- readLabelUserEmail' uId = 
+--     ((toConfidentialityLabel "Admin") `glb` (toConfidentialityLabel uId))
+--
+-- writeLabelUserEmail' :: UserId -> DCLabel Principal
+-- writeLabelUserEmail' uId = 
+--     (toIntegrityLabel uId)
+--
+-- createLabelUserEmail' :: DCLabel Principal
+-- createLabelUserEmail' = 
+--     bottom
+
+mkLabelEntity' :: Type -> LEntityDef -> [Dec]
+mkLabelEntity' labelType ent =
+    let labelFs = map mkLabelField' (lEntityFields ent) in
+    concat labelFs
+
+    where
+        eName = lEntityHaskell ent
+        toConfLabel = VarE $ mkName "toConfidentialityLabel"
+        toIntegLabel = VarE $ mkName "toIntegrityLabel"
+        bottom = VarE $ mkName "bottom"
+        appMeet = AppE . (AppE (VarE (mkName "glb")))
+        mkType =
+            let helper annotation acc = case annotation of
+                  LAConst _ ->
+                    acc
+                  LAId ->
+                    let name = mkName $ eName ++ "Id" in
+                    AppT (ConT name) acc
+                  LAField s -> 
+                    let typ = getLEntityFieldType ent s in
+                    AppT typ acc
+            in
+            List.foldr helper labelType
+        mkPattern = 
+            let helper annotation acc = case annotation of
+                  LAConst _ ->
+                    acc
+                  LAId -> 
+                    (VarP $ mkName "_id"):acc
+                  LAField s ->
+                    (VarP $ mkName $ "_" ++ s):acc
+            in
+            List.foldr helper []
+        mkBody f anns = case anns of
+            [] -> 
+                bottom
+            h:t -> 
+                let appF ann = case ann of
+                      LAId ->
+                        AppE f $ VarE $ mkName "_id"
+                      LAConst c ->
+                        AppE f $ SigE (LitE $ StringL c) $ ConT $ mkName "String"
+                      LAField fName ->
+                        AppE f $ VarE $ mkName $ "_" ++ fName
+                in
+                List.foldl' (\acc ann -> appMeet acc $ appF ann) (appF h) t
+        mkLabelField' field = 
+            case lFieldLabelAnnotations field of
+                Nothing ->
+                    []
+                Just ( readAnns, writeAnns, createAnns) ->
+                    let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
+                    let readName = mkName $ "readLabel" ++ baseName in
+                    let writeName = mkName $ "writeLabel" ++ baseName in
+                    let createName = mkName $ "createLabel" ++ baseName in
+                    let readSig = SigD readName $ mkType readAnns in
+                    let readDef = FunD readName [Clause (mkPattern readAnns) (NormalB $ mkBody toConfLabel readAnns) []] in
+                    let writeSig = SigD writeName $ mkType writeAnns in
+                    let writeDef = FunD writeName [Clause (mkPattern writeAnns) (NormalB $ mkBody toIntegLabel writeAnns) []] in
+                    let createSig = SigD createName $ mkType createAnns in
+                    let createDef = FunD createName [Clause (mkPattern createAnns) (NormalB $ mkBody toIntegLabel createAnns) []] in
+                    [readSig, readDef, writeSig, writeDef, createSig, createDef]
 
 
 
@@ -357,6 +438,21 @@ fieldTypeToType ft = case ft of
         ConT $ mkName $ Text.unpack con
     _ ->
         error "TODO: will this ever happen??"
+
+getLEntityFieldType :: LEntityDef -> String -> Type
+getLEntityFieldType ent fName = 
+    let ftype = List.foldl' (\acc f -> case (acc, lFieldHaskell f) of 
+            (Nothing, s) | s == fName -> 
+                Just $ fieldTypeToType $ lFieldType f
+            _ ->
+                acc
+          ) Nothing $ lEntityFields ent 
+    in
+    case ftype of 
+        Nothing ->
+            error $ "getLEntityFieldType: Could not find find field `" ++ fName ++"` in entity `"++ (lEntityHaskell ent) ++"`"
+        Just f ->
+            f
 
 -- Parse chevrons
 -- C = < L , L , L >
