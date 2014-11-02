@@ -45,7 +45,8 @@ cabal-version:       >=1.8
 library
   -- Modules exported by the library.
   exposed-modules:     
-      Database.LPersist
+      Database.LEsqueleto
+    , Database.LPersist
     , Database.LPersist.Labeler
     , Database.LPersist.TH
   
@@ -77,6 +78,7 @@ library
     , tagged
     , template-haskell
     , text
+    , transformers
     , yesod-core
     , yesod-persistent
   

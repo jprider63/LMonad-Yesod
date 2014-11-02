@@ -4,11 +4,11 @@ module Database.LPersist.Labeler (mkLabels) where
 
 import Control.Applicative
 import Control.Monad
+import Data.Attoparsec.Text
 import qualified Data.Char as Char
 import qualified Data.List as List
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Data.Attoparsec.Text
 import Database.Persist.Types
 import Language.Haskell.TH
 import Prelude
@@ -486,7 +486,6 @@ parseChevrons s = case parseOnly parseC s of
                 skipSpace
                 _ <- char '|'
                 _ <- char '|'
-                skipSpace
                 parseK
               ) <|> (return [])
 
