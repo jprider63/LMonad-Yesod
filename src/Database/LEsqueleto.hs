@@ -39,13 +39,13 @@ data Select = Select | PSelect
 data Terms = Terms [Term] | TermsAll
 
 data Tables = Table String | Tables Tables Join String BExpr
-data Join = InnerJoin | OuterJoin | LeftOuterJoin | RightOuterJoin | FullOuterJoin
+data Join = InnerJoin | LeftOuterJoin | RightOuterJoin | FullOuterJoin | CrossJoin
 
 data Where = Where BExpr
 
-data OrderBy = OrderBy Order
+data OrderBy = OrderBy [Order]
 
-data Order = OrderT Term | OrderTA Term | OrderTD Term | OrderTO Term Order
+data Order = OrderAsc Term | OrderDesc Term
 
 data Limit = Limit Int64
 
@@ -113,7 +113,27 @@ parseCommand = do
         parseField = (char '*' >> (return FieldAll)) <|> 
             ( takeAlphaNum >>= (return . Field. Text.unpack))
 
-        parseTables = undefined
+        parseTables = 
+            let parseTables' acc = ( do
+                    skipSpace
+                    join <- ( asciiCI "INNER JOIN" >> (return InnerJoin)) <|> 
+                      ( asciiCI "OUTER JOIN" >> (return LeftOuterJoin)) <|>
+                      ( asciiCI "LEFT OUTER JOIN" >> (return LeftOuterJoin)) <|>
+                      ( asciiCI "RIGHT OUTER JOIN" >> (return RightOuterJoin)) <|>
+                      ( asciiCI "FULL OUTER JOIN" >> (return FullOuterJoin)) <|>
+                      ( asciiCI "CROSS JOIN" >> (return CrossJoin))
+                    skipSpace
+                    table <- takeAlphaNum
+                    skipSpace
+                    _ <- asciiCI "ON"
+                    bexpr <- parseBExpr
+                    return $ Tables acc join (Text.unpack table) bexpr
+                  ) <|> (return acc)
+            in
+            do
+            skipSpace
+            table <- takeAlphaNum
+            parseTables' $ Table $ Text.unpack table
 
         parseWhere = ( do
             skipSpace
@@ -125,9 +145,22 @@ parseCommand = do
         parseOrderBy = ( do
             skipSpace
             _ <- asciiCI "ORDER BY"
-            order <- parseOrder
-            return $ Just $ OrderBy order
+            orders <- parseOrders
+            return $ Just $ OrderBy orders
           ) <|> (return Nothing)
+            
+            where
+                parseOrders = do
+                    term <- parseTerm
+                    order <- ( skipSpace >> asciiCI "ASC" >> (return OrderAsc)) <|> 
+                        ( skipSpace >> asciiCI "DESC" >> (return OrderDesc)) <|> 
+                        ( return OrderAsc)
+                    tail <- ( do
+                        skipSpace
+                        _ <- asciiCI ","
+                        parseOrders
+                      )
+                    return $ (order term):tail
 
         parseLimit = ( do
             skipSpace
@@ -145,7 +178,42 @@ parseCommand = do
             return $ Just $ Offset limit
           ) <|> (return Nothing)
 
-        parseBExpr = undefined
-        parseOrder = undefined
+        parseBExpr = ( do
+            skipSpace
+            _ <- char "("
+            res <- parseBExpr
+            skipSpace
+            _ <- char ")"
+            return res
+          ) <|> ( do
+            skipSpace
+            _ <- asciiCI "NOT"
+            res <- parseBExpr
+            return $ BExprNot res
+          ) <|> ( do
+            term <- parseTerm
+            skipSpace
+            asciiCI "IS NULL"
+            return $ BExprNull term
+          ) <|> ( do
+            term <- parseTerm
+            skipSpace
+            asciiCI "IS NOT NULL"
+          ) <|> ( do
+            b1 <- parseB
+            constr <- parseBConstr
+            b2 <- parseB
+            return $ cosntr b1 b2
+          ) <|> ( do
+            expr1 <- parseBExpr
+            skipSpace
+            constr <- (asciiCI "AND" >> (return BExprAnd)) <|>
+                (asciiCI "OR" >> (return BExprOr))
+            expr2 <- parseBExpr
+            return $ constr expr1 expr2
+          )
 
+        where
+            parseB = undefined
+            parseBConstr = undefined
 
