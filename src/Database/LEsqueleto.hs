@@ -54,11 +54,12 @@ data Offset = Offset Int64
 data Term = TermTF String TermField | TermF TermField
 data TermField = Field String | FieldAll
 
-data BExpr = BExprAnd BExpr BExpr | BExprOr BExpr BExpr | BExprBinOP B BinOp B | BExprNull Term | BExprNotNull Term | BExprNot BExpr
+data BExpr = BExprAnd BExpr BExpr | BExprOr BExpr BExpr | BExprBinOp B BinOp B | BExprNull Term | BExprNotNull Term | BExprNot BExpr
 
-data BinOp = BinEq | BinGT | BinG | BinLT | BinL
+data BinOp = BinEq | BinGE | BinG | BinLE | BinL
 
-data B = BTerm Term | BAnti String | BConst Int64
+data B = BTerm Term | BAnti String | BConst C
+data C = CBool Bool | CString String | CInt Int64 | CDouble Double
 
 parseCommand :: Parser Command
 parseCommand = do
@@ -180,10 +181,10 @@ parseCommand = do
 
         parseBExpr = ( do
             skipSpace
-            _ <- char "("
+            _ <- char '('
             res <- parseBExpr
             skipSpace
-            _ <- char ")"
+            _ <- char ')'
             return res
           ) <|> ( do
             skipSpace
@@ -193,17 +194,18 @@ parseCommand = do
           ) <|> ( do
             term <- parseTerm
             skipSpace
-            asciiCI "IS NULL"
+            _ <- asciiCI "IS NULL"
             return $ BExprNull term
           ) <|> ( do
             term <- parseTerm
             skipSpace
-            asciiCI "IS NOT NULL"
+            _ <- asciiCI "IS NOT NULL"
+            return $ BExprNotNull term
           ) <|> ( do
             b1 <- parseB
-            constr <- parseBConstr
+            op <- parseBOp
             b2 <- parseB
-            return $ cosntr b1 b2
+            return $ BExprBinOp b1 op b2
           ) <|> ( do
             expr1 <- parseBExpr
             skipSpace
@@ -213,7 +215,49 @@ parseCommand = do
             return $ constr expr1 expr2
           )
 
-        where
-            parseB = undefined
-            parseBConstr = undefined
+          where
+            parseSQLString = takeWhile1 (/= '\'')
+
+            parseConst = skipSpace >> 
+                ( asciiCI "TRUE" >> return (CBool True)) <|>
+                ( asciiCI "FALSE" >> return (CBool False)) <|>
+                ( do
+                    _ <- char '\'' 
+                    skipSpace
+                    str <- parseSQLString
+                    skipSpace
+                    _ <- char '\'' 
+                    return $ CString $ Text.unpack str
+                ) <|> ( do
+                    int <- signed decimal
+                    next <- peekChar
+                    case next of 
+                        Just '.' ->
+                            fail "this is a double"
+                        _ ->
+                            return $ CInt int
+                ) <|>
+                ( double >>= (return . CDouble))
+
+            parseB = ( do
+                skipSpace
+                _ <- asciiCI "#{"
+                skipSpace
+                var <- takeAlphaNum
+                skipSpace
+                _ <- char '}'
+                return $ BAnti $ Text.unpack var
+              ) <|> ( do
+                term <- parseTerm
+                return $ BTerm term
+              ) <|> ( do
+                c <- parseConst
+                return $ BConst c
+              )
+
+            parseBOp = skipSpace >> ( asciiCI "==" >> return BinEq) <|> 
+                ( asciiCI ">=" >> return BinGE) <|>
+                ( char '>' >> return BinG) <|>
+                ( asciiCI "<=" >> return BinLE) <|>
+                ( char '<' >> return BinL)
 
