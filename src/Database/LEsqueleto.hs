@@ -65,7 +65,7 @@ generateSql s =
     let leftOuterJoin = VarE $ mkName "LeftOuterJoin" in
     let rightOuterJoin = VarE $ mkName "RightOuterJoin" in
     let fullOuterJoin = VarE $ mkName "FullOuterJoin" in
-    let crossJoin = VarE $ mkName "CrossJoin" in
+    -- let crossJoin = VarE $ mkName "CrossJoin" in
     do
     res <- newName "res"
     let query = 
@@ -86,7 +86,7 @@ generateSql s =
                   LeftOuterJoin -> 'LeftOuterJoin
                   RightOuterJoin -> 'RightOuterJoin
                   FullOuterJoin -> 'FullOuterJoin
-                  CrossJoin -> 'CrossJoin
+                  -- CrossJoin -> 'CrossJoin
             in
             ConP constr [ mkQueryPatternTables ts, VarP $ varNameTable table]
 
@@ -215,7 +215,7 @@ data Select = Select | PSelect
 data Terms = Terms [Term] | TermsAll
 
 data Tables = Table String | Tables Tables Join String BExpr
-data Join = InnerJoin | LeftOuterJoin | RightOuterJoin | FullOuterJoin | CrossJoin
+data Join = InnerJoin | LeftOuterJoin | RightOuterJoin | FullOuterJoin -- | CrossJoin
 
 data Where = Where BExpr
 
@@ -299,8 +299,8 @@ parseCommand = do
                       ( asciiCI "OUTER JOIN" >> (return LeftOuterJoin)) <|>
                       ( asciiCI "LEFT OUTER JOIN" >> (return LeftOuterJoin)) <|>
                       ( asciiCI "RIGHT OUTER JOIN" >> (return RightOuterJoin)) <|>
-                      ( asciiCI "FULL OUTER JOIN" >> (return FullOuterJoin)) <|>
-                      ( asciiCI "CROSS JOIN" >> (return CrossJoin))
+                      ( asciiCI "FULL OUTER JOIN" >> (return FullOuterJoin)) -- <|>
+                      --( asciiCI "CROSS JOIN" >> (return CrossJoin))
                     skipSpace
                     table <- takeAlphaNum
                     skipSpace
