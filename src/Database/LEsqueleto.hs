@@ -8,6 +8,7 @@ import Control.Monad.Trans.Reader
 import Data.Attoparsec.Text
 import qualified Data.Char as Char
 import Data.Int (Int64)
+import qualified Data.List as List
 import qualified Data.Text as Text
 import Database.LPersist
 --import Database.Persist
@@ -24,14 +25,114 @@ lsql = QuasiQuoter {
 --parse :: (Label l, PersistConfig c, LMonad m, m ~ HandlerT site IO) => Text -> PersistConfigBackend c (LMonadT l m) b
 --generateSql :: (Label l, m ~ HandlerT site IO, YesodLPersist site) => ReaderT (YesodPersistBackend site) (LMonadT l m) a 
 generateSql s = 
+    -- Parse the DSL. 
     let ast = case parseOnly parseCommand s of
           Left err ->
             error $ "Error parsing lsql statement: " ++ err
           Right res ->
             res
     in
+    let normalized = normalizeTerms ast in
+    {-
+    ...
+    normalize terms
+    get all terms
+    get all dependency terms (or a map of terms -> [dependencies]??)
+    union terms and dependency terms
+    generate sql query
+    generate map over results
+        taintlabel or tolabeled result
+        return terms
+
+    ...
+    need to check if fields/tables are maybes???
+    -}
     undefined
 
+-- | Normalize an AST by adding table name for all terms. Also expands out all the tables requested when TermsAll is applied. 
+normalizeTerms :: Command -> Command
+normalizeTerms (Command select terms tables whereM orderByM limitM offsetM) = 
+    -- Get the default table if there are no joins. 
+    let defTable = case tables of 
+          Table table ->
+            Just table
+          _ ->
+            Nothing
+    in
+    let terms' = case terms of
+          TermsAll ->
+            -- Expand all the tables out. 
+            let expander acc tables = case tables of
+                  Table table ->
+                    (TermTF table FieldAll):acc
+                  Tables tables _ table _ ->
+                    expander ((TermTF table FieldAll):acc) tables
+            in
+            Terms $ expander [] tables
+          Terms terms' -> 
+            -- Add table name to each term. 
+            Terms $ List.map (updateTerm defTable) terms'
+    in
+    -- This checks that terms should already have tables included. 
+    let tables' = updateTables defTable tables in
+    let whereM' = case whereM of 
+          Just (Where bexpr) -> 
+            Just $ Where $ updateBExpr defTable bexpr
+          Nothing -> 
+            Nothing
+    in
+    let orderByM' = case orderByM of
+          Just (OrderBy orders) -> 
+            let helper ord = case ord of
+                  OrderAsc t ->
+                    OrderAsc $ updateTerm defTable t
+                  OrderDesc t ->
+                    OrderDesc $ updateTerm defTable t
+            in
+            Just $ OrderBy $ List.map helper orders
+          Nothing -> 
+            Nothing
+    in
+    Command select terms' tables' whereM' orderByM' limitM offsetM
+
+    where
+        updateTerm defTable term = case term of
+            TermF field ->
+                maybe 
+                    ( let fieldS = case field of
+                            Field s -> s
+                            FieldAll -> "*"
+                      in
+                      error $ "Could not infer table associated with field `" ++ fieldS ++ "`")
+                    (\table -> TermTF table field)
+                    defTable
+            _ ->
+                term
+        
+        updateTables defTable (Tables ts j table bexpr) =
+            Tables (updateTables defTable ts) j table $ updateBExpr defTable bexpr
+        updateTables _ t = t
+
+        updateBExpr defTable bexpr = case bexpr of
+            BExprAnd expr1 expr2 ->
+                BExprAnd (updateBExpr defTable expr1) (updateBExpr defTable expr2)
+            BExprOr expr1 expr2 ->
+                BExprOr (updateBExpr defTable expr1) (updateBExpr defTable expr2)
+            BExprBinOp b1 op b2 ->
+                BExprBinOp (updateB defTable b1) op (updateB defTable b2)
+            BExprNull t ->
+                BExprNull $ updateTerm defTable t
+            BExprNotNull t ->
+                BExprNotNull $ updateTerm defTable t
+            BExprNot expr ->
+                BExprNot $ updateBExpr defTable expr
+
+        updateB defTable (BTerm t) = BTerm $ updateTerm defTable t
+        updateB _ b = b
+
+
+
+-- | Represent the AST for lsql statements. 
 data Command = Command Select Terms Tables (Maybe Where) (Maybe OrderBy) (Maybe Limit) (Maybe Offset)
 data Select = Select | PSelect
 
@@ -73,6 +174,8 @@ parseCommand = do
     return $ Command select terms tables whereM orderByM limitM offsetM
 
     where
+        takeNonSpace = takeWhile1 (not . Char.isSpace)
+
         takeAlphaNum = takeWhile1 Char.isAlphaNum
         takeUpperAlphaNum = do
             an <- takeAlphaNum
@@ -243,7 +346,7 @@ parseCommand = do
                 skipSpace
                 _ <- asciiCI "#{"
                 skipSpace
-                var <- takeAlphaNum
+                var <- takeNonSpace
                 skipSpace
                 _ <- char '}'
                 return $ BAnti $ Text.unpack var
