@@ -33,9 +33,12 @@ generateSql s =
             res
     in
     let normalized = normalizeTerms ast in
+    let terms = undefined :: [ReqTerm] in
+    let isTableOptional = undefined :: String -> Bool in
     {-
     ...
     normalize terms
+    make map from tables -> isMaybe??
     get all terms
     get all dependency terms (or a map of terms -> [dependencies]??)
     union terms and dependency terms
@@ -47,7 +50,71 @@ generateSql s =
     ...
     need to check if fields/tables are maybes???
     -}
-    undefined
+    let select = VarE $ mkName "select" in
+    let from = VarE $ mkName "from" in
+    let where_ = VarE $ mkName "where_" in
+    let on = VarE $ mkName "on" in
+    let (^.) = VarE $ mkName "^." in
+    let (?.) = VarE $ mkName "?." in
+    let (==.) = VarE $ mkName "==." in
+    let (>=.) = VarE $ mkName ">=." in
+    let (>.) = VarE $ mkName ">." in
+    let (<=.) = VarE $ mkName "<=." in
+    let (<.) = VarE $ mkName "<." in
+    let innerJoin = VarE $ mkName "InnerJoin" in
+    let leftOuterJoin = VarE $ mkName "LeftOuterJoin" in
+    let rightOuterJoin = VarE $ mkName "RightOuterJoin" in
+    let fullOuterJoin = VarE $ mkName "FullOuterJoin" in
+    let crossJoin = VarE $ mkName "CrossJoin" in
+    do
+    res <- newName "res"
+    let query = 
+          let tables = commandTables normalized in
+          BindS (VarP res) $ AppE select $ AppE from $ 
+            LamE [mkQueryPatternTables tables] $ DoE 
+                ((mkOnTables tables False) ++ [])
+
+    let taint = undefined
+
+    return $ DoE [ query, taint]
+
+    where
+        mkQueryPatternTables (Table table) = VarP $ varNameTable table
+        mkQueryPatternTables (Tables ts j table _) = 
+            let constr = case j of
+                  InnerJoin -> 'InnerJoin
+                  LeftOuterJoin -> 'LeftOuterJoin
+                  RightOuterJoin -> 'RightOuterJoin
+                  FullOuterJoin -> 'FullOuterJoin
+                  CrossJoin -> 'CrossJoin
+            in
+            ConP constr [ mkQueryPatternTables ts, VarP $ varNameTable table]
+
+        -- Is table or field optional?
+        mkOnTables (Table table) option = []
+        mkOnTables (Tables ts j table bexpr@(BExprBinOp (BTerm term1) BinEq (NTerm term2))) option = 
+            let (TermTF table1 field1) = term1 in
+            let (TermTF table2 field2) = term2 in
+            let isOption1 = isOption table1 field1 in
+            let isOption2 = isOption table2 field2 in
+
+        mkOnTables (Tables _ _ table _) _ = error $ "mkOnTables: Invalid on expression for table `" ++ table ++ "`"
+
+        mkBExpr (BExprBinOp b1 op b2) = 
+        mkBExpr _ = error "TODO"
+
+        varNameTable table = mkName $ '_':(List.map Char.toLower table)
+
+data ReqTerm = ReqField {
+        reqFieldTable :: String
+      , reqFieldField :: String
+      , reqFieldIsMaybe :: Bool
+      , reqFieldReturning :: Bool
+      , reqFieldDependencies :: [(String,String)] -- Contains ( table, field) dependencies.
+    }
+  | ReqEntity {
+        reqEntityTable :: String
+    }
 
 -- | Normalize an AST by adding table name for all terms. Also expands out all the tables requested when TermsAll is applied. 
 normalizeTerms :: Command -> Command
@@ -133,7 +200,15 @@ normalizeTerms (Command select terms tables whereM orderByM limitM offsetM) =
 
 
 -- | Represent the AST for lsql statements. 
-data Command = Command Select Terms Tables (Maybe Where) (Maybe OrderBy) (Maybe Limit) (Maybe Offset)
+data Command = Command {
+        commandSelect :: Select
+      , commandTerms :: Terms
+      , commandTables :: Tables
+      , commandWhere :: Maybe Where
+      , commandOrderBy :: Maybe OrderBy
+      , commandLimit :: Maybe Limit
+      , commandOffset :: Maybe Offset
+    }
 data Select = Select | PSelect
 
 --data Terms = Term Term | Terms Terms Term | TermsAll
