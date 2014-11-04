@@ -50,29 +50,13 @@ generateSql s =
     ...
     need to check if fields/tables are maybes???
     -}
-    let select = VarE $ mkName "select" in
-    let from = VarE $ mkName "from" in
-    let where_ = VarE $ mkName "where_" in
-    let on = VarE $ mkName "on" in
-    let (^.) = VarE $ mkName "^." in
-    let (?.) = VarE $ mkName "?." in
-    let (==.) = VarE $ mkName "==." in
-    let (>=.) = VarE $ mkName ">=." in
-    let (>.) = VarE $ mkName ">." in
-    let (<=.) = VarE $ mkName "<=." in
-    let (<.) = VarE $ mkName "<." in
-    let innerJoin = VarE $ mkName "InnerJoin" in
-    let leftOuterJoin = VarE $ mkName "LeftOuterJoin" in
-    let rightOuterJoin = VarE $ mkName "RightOuterJoin" in
-    let fullOuterJoin = VarE $ mkName "FullOuterJoin" in
-    -- let crossJoin = VarE $ mkName "CrossJoin" in
     do
     res <- newName "res"
     let query = 
           let tables = commandTables normalized in
-          BindS (VarP res) $ AppE select $ AppE from $ 
+          BindS (VarP res) $ AppE selectE $ AppE fromE $ 
             LamE [mkQueryPatternTables tables] $ DoE 
-                ((mkOnTables tables False) ++ [])
+                ((mkOnTables isTableOptional tables) ++ [])
 
     let taint = undefined
 
@@ -90,20 +74,68 @@ generateSql s =
             in
             ConP constr [ mkQueryPatternTables ts, VarP $ varNameTable table]
 
-        -- Is table or field optional?
-        mkOnTables (Table table) option = []
-        mkOnTables (Tables ts j table bexpr@(BExprBinOp (BTerm term1) BinEq (NTerm term2))) option = 
-            let (TermTF table1 field1) = term1 in
-            let (TermTF table2 field2) = term2 in
-            let isOption1 = isOption table1 field1 in
-            let isOption2 = isOption table2 field2 in
+        mkOnTables _ (Table table) = []
+        mkOnTables isTableOptional (Tables ts _ _ bexpr@(BExprBinOp (BTerm term1) BinEq (BTerm term2))) = 
+            (mkExprBExpr isTableOptional bexpr):(mkOnTables isTableOptional ts)
+        mkOnTables _ (Tables _ _ table _) = error $ "mkOnTables: Invalid on expression for table `" ++ table ++ "`"
 
-        mkOnTables (Tables _ _ table _) _ = error $ "mkOnTables: Invalid on expression for table `" ++ table ++ "`"
+        mkExprBExpr isTableOptional (BExprBinOp (BTerm term1) op' (BTerm term2)) = 
+            let (table1,field1) = extractTableField term1 in
+            let (table2,field2) = extractTableField term2 in
+            let tableOptional1 = isTableOptional table1 in
+            let tableOptional2 = isTableOptional table2 in
+            let expr1' = mkExprB tableOptional1 table1 field1 in
+            let expr2' = mkExprB tableOptional2 table2 field2 in
+            let fieldOptional1 = isTableFieldOptional table1 field1 in
+            let fieldOptional2 = isTableFieldOptional table2 field2 in
+            let optional1 = tableOptional1 || fieldOptional1 in
+            let optional2 = fieldOptional1 || fieldOptional2 in
+            let ( expr1, expr2) = case ( optional1, optional2) of
+                  ( True, False) ->
+                    ( expr1', AppE justE expr2')
+                  ( False, True) ->
+                    ( AppE justE expr1', expr2')
+                  _ ->
+                    ( expr1', expr2')
+            in
+            let op = case op' of
+                  BinEq -> eqE
+                  BinGE -> geE
+                  BinG -> gE
+                  BinLE -> leE
+                  binL -> lE
+            in
+            NoBindS $ UInfixE expr1 op expr2
+        mkExprBExpr _ (BExprBinOp b1 op b2) = error "TODO"
+        mkExprBExpr _ _ = error "TODO"
 
-        mkBExpr (BExprBinOp b1 op b2) = 
-        mkBExpr _ = error "TODO"
+        mkExprB _ = undefined
+
+        isTableFieldOptional = undefined
+
+        extractTableField (TermTF t (Field f)) = ( t, f)
+        extractTableField (TermTF t FieldAll) = error $ "extractTableField: All fields requested for table `" ++ t ++ "`"
+        extractTableField (TermF f) = error $ "extractTableField: Invalid terminal field `TermF " ++ (show f) ++ "`"
 
         varNameTable table = mkName $ '_':(List.map Char.toLower table)
+
+        selectE = VarE $ mkName "select"
+        fromE = VarE $ mkName "from"
+        where_E = VarE $ mkName "where_"
+        onE = VarE $ mkName "on"
+        justE = VarE $ mkName "just"
+        carotE = VarE $ mkName "^."
+        questionE = VarE $ mkName "?."
+        eqE = VarE $ mkName "==."
+        geE = VarE $ mkName ">=."
+        gE = VarE $ mkName ">."
+        leE = VarE $ mkName "<=."
+        lE = VarE $ mkName "<."
+        innerJoin = VarE $ mkName "InnerJoin"
+        leftOuterJoin = VarE $ mkName "LeftOuterJoin"
+        rightOuterJoin = VarE $ mkName "RightOuterJoin"
+        fullOuterJoin = VarE $ mkName "FullOuterJoin"
+        -- crossJoin = VarE $ mkName "CrossJoin"
 
 data ReqTerm = ReqField {
         reqFieldTable :: String
@@ -166,11 +198,7 @@ normalizeTerms (Command select terms tables whereM orderByM limitM offsetM) =
         updateTerm defTable term = case term of
             TermF field ->
                 maybe 
-                    ( let fieldS = case field of
-                            Field s -> s
-                            FieldAll -> "*"
-                      in
-                      error $ "Could not infer table associated with field `" ++ fieldS ++ "`")
+                    (error $ "Could not infer table associated with field `" ++ (show field) ++ "`")
                     (\table -> TermTF table field)
                     defTable
             _ ->
@@ -236,6 +264,10 @@ data BinOp = BinEq | BinGE | BinG | BinLE | BinL
 
 data B = BTerm Term | BAnti String | BConst C
 data C = CBool Bool | CString String | CInt Int64 | CDouble Double
+
+instance Show TermField where
+    show (Field s) = s
+    show (FieldAll) = "*"
 
 parseCommand :: Parser Command
 parseCommand = do
@@ -421,7 +453,7 @@ parseCommand = do
                 skipSpace
                 _ <- asciiCI "#{"
                 skipSpace
-                var <- takeNonSpace
+                var <- takeNonSpace -- TODO: maybe make this into a [String] and stop at '}'
                 skipSpace
                 _ <- char '}'
                 return $ BAnti $ Text.unpack var
