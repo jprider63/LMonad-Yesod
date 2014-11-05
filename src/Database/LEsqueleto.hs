@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, OverloadedStrings #-}
 
-module Database.LEsqueleto (lsql) where
+module Database.LEsqueleto (mkLSql) where
 
 import Control.Applicative
 import Control.Monad
@@ -10,6 +10,7 @@ import qualified Data.Char as Char
 import Data.Int (Int64)
 import qualified Data.List as List
 import Database.Persist.Types
+import Data.Text (Text)
 import qualified Data.Text as Text
 import Database.LPersist
 --import Database.Persist
@@ -20,14 +21,73 @@ import Yesod.Persist.Core
 
 import Internal
 
-lsql :: QuasiQuoter
-lsql = QuasiQuoter {
-        quoteExp = generateSql . Text.pack
+mkLSql :: [LEntityDef] -> Q [Dec]
+mkLSql ents' = 
+    let lsql = mkName "lsql" in
+    let sig = SigD lsql (ConT ''QuasiQuoter) in
+    let ents = mkSerializedLEntityDefs ents' in
+    let def = ValD (VarP lsql) (NormalB (AppE (VarE $ mkName "lsql'") ents)) [] in
+    return [ sig, def]
+
+-- | Serialize LEntityDefs so that lsql can access them in other modules. 
+-- Ex:
+--
+-- [ LEntityDef "User" [LFieldDef "ident" (FTTypeCon "Text") True Nothing, ...], ...]
+mkSerializedLEntityDefs :: [LEntityDef] -> Exp
+mkSerializedLEntityDefs ents' = 
+    let ents = List.map mkSerializedLEntityDef ents' in
+    ListE ents
+
+    where
+        mkSerializedLEntityDef ent = 
+            let str = LitE $ StringL $ lEntityHaskell ent in
+            let fields = mkSerializedLFieldsDef $ lEntityFields ent in
+            AppE (AppE (ConE 'LEntityDef) str) fields
+
+        mkSerializedText t = SigE (LitE $ StringL $ Text.unpack t) (ConT ''Text)
+        mkSerializedFieldType typ = case typ of
+            FTTypeCon moduleM' name' ->
+                let moduleM = maybe (ConE 'Nothing) (\m -> AppE (ConE 'Just) (mkSerializedText m)) moduleM' in
+                let name = mkSerializedText name' in
+                AppE (AppE (ConE 'FTTypeCon) moduleM) name
+            FTApp typ1' typ2' ->
+                let typ1 = mkSerializedFieldType typ1' in
+                let typ2 = mkSerializedFieldType typ2' in
+                AppE (AppE (ConE 'FTApp) typ1) typ2
+            FTList typ' ->
+                let typ = mkSerializedFieldType typ' in
+                AppE (ConE 'FTList) typ
+        mkSerializedLabelAnnotation la = case la of 
+            LAId ->
+                ConE 'LAId
+            LAConst s ->
+                AppE (ConE 'LAConst) (LitE $ StringL s)
+            LAField s -> 
+                AppE (ConE 'LAField) (LitE $ StringL s)
+        mkSerializedLFieldsDef fields' = 
+            let helper field = 
+                  let name = LitE $ StringL $ lFieldHaskell field in
+                  let typ = mkSerializedFieldType $ lFieldType field in
+                  let strict = ConE $ if lFieldStrict field then 'True else 'False in
+                  let anns = maybe (ConE 'Nothing) (\( r', w', c') -> 
+                            let r = ListE $ map mkSerializedLabelAnnotation r' in
+                            let w = ListE $ map mkSerializedLabelAnnotation w' in
+                            let c = ListE $ map mkSerializedLabelAnnotation c' in
+                            AppE (ConE 'Just) $ TupE [ r, w, c]
+                        ) $ lFieldLabelAnnotations field 
+                  in
+                  AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns
+            in
+            ListE $ map helper fields'
+
+lsql' :: [LEntityDef] -> QuasiQuoter
+lsql' ents = QuasiQuoter {
+        quoteExp = (generateSql ents) . Text.pack
     }
 
 --parse :: (Label l, PersistConfig c, LMonad m, m ~ HandlerT site IO) => Text -> PersistConfigBackend c (LMonadT l m) b
 --generateSql :: (Label l, m ~ HandlerT site IO, YesodLPersist site) => ReaderT (YesodPersistBackend site) (LMonadT l m) a 
-generateSql s = 
+generateSql lEntityDefs s = 
     -- Parse the DSL. 
     let ast = case parseOnly parseCommand s of
           Left err ->
