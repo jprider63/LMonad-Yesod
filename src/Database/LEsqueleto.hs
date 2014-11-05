@@ -7,8 +7,8 @@ import Control.Monad
 import Control.Monad.Trans.Reader
 import Data.Attoparsec.Text
 import qualified Data.Char as Char
-import Data.Int (Int64)
 import qualified Data.List as List
+import qualified Database.Esqueleto as Esq
 import Database.Persist.Types
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -21,12 +21,13 @@ import Yesod.Persist.Core
 
 import Internal
 
+-- | Generate the quasiquoter function `lsql` that parses the esqueleto DSL.
 mkLSql :: [LEntityDef] -> Q [Dec]
 mkLSql ents' = 
     let lsql = mkName "lsql" in
     let sig = SigD lsql (ConT ''QuasiQuoter) in
     let ents = mkSerializedLEntityDefs ents' in
-    let def = ValD (VarP lsql) (NormalB (AppE (VarE $ mkName "lsql'") ents)) [] in
+    let def = ValD (VarP lsql) (NormalB (AppE (VarE 'lsqlHelper) ents)) [] in
     return [ sig, def]
 
 -- | Serialize LEntityDefs so that lsql can access them in other modules. 
@@ -80,8 +81,8 @@ mkSerializedLEntityDefs ents' =
             in
             ListE $ map helper fields'
 
-lsql' :: [LEntityDef] -> QuasiQuoter
-lsql' ents = QuasiQuoter {
+lsqlHelper :: [LEntityDef] -> QuasiQuoter
+lsqlHelper ents = QuasiQuoter {
         quoteExp = (generateSql ents) . Text.pack
     }
 
@@ -119,7 +120,12 @@ generateSql lEntityDefs s =
           let tables = commandTables normalized in
           BindS (VarP res) $ AppE selectE $ AppE fromE $ 
             LamE [mkQueryPatternTables tables] $ DoE 
-                ((mkOnTables isTableOptional tables) ++ [])
+                ((mkOnTables isTableOptional tables) 
+                ++ (mkWhere isTableOptional $ commandWhere normalized) 
+                ++ (mkOrderBy isTableOptional $ commandOrderBy normalized)
+                ++ (mkLimit $ commandLimit normalized)
+                ++ (mkOffset $ commandOffset normalized)
+                ++ undefined) -- TODO: return ...
 
     let taint = undefined
 
@@ -137,9 +143,30 @@ generateSql lEntityDefs s =
             in
             ConP constr [ mkQueryPatternTables ts, VarP $ varNameTable table]
 
+        mkWhere _ Nothing = []
+        mkWhere isTableOptional (Just (Where expr)) = [NoBindS $ AppE (VarE 'Esq.where_) $ mkExprBExpr isTableOptional expr]
+
+        mkOrderBy _ Nothing = []
+        mkOrderBy isTableOptional (Just (OrderBy ords')) = 
+            let helper ord = 
+                  let ( op,( table, field)) = case ord of
+                        OrderAsc t -> ( 'Esq.asc, extractTableField t)
+                        OrderDesc t -> ( 'Esq.desc, extractTableField t)
+                  in
+                  AppE (VarE op) $ mkExprTF (isTableOptional table) table field
+            in
+            let ords = List.map helper ords' in
+            [NoBindS $ AppE (VarE 'Esq.orderBy) $ ListE ords]
+
+        mkLimit Nothing = []
+        mkLimit (Just (Limit limit)) = [NoBindS $ AppE (VarE 'Esq.limit) $ LitE $ IntegerL limit]
+        
+        mkOffset Nothing = []
+        mkOffset (Just (Offset offset)) = [NoBindS $ AppE (VarE 'Esq.offset) $ LitE $ IntegerL offset]
+
         mkOnTables _ (Table table) = []
         mkOnTables isTableOptional (Tables ts _ _ bexpr@(BExprBinOp (BTerm term1) BinEq (BTerm term2))) = 
-            (mkExprBExpr isTableOptional bexpr):(mkOnTables isTableOptional ts)
+            (NoBindS $ mkExprBExpr isTableOptional bexpr):(mkOnTables isTableOptional ts)
         mkOnTables _ (Tables _ _ table _) = error $ "mkOnTables: Invalid on expression for table `" ++ table ++ "`"
 
         mkExprBExpr isTableOptional (BExprBinOp (BTerm term1) op' (BTerm term2)) = 
@@ -147,8 +174,8 @@ generateSql lEntityDefs s =
             let (table2,field2) = extractTableField term2 in
             let tableOptional1 = isTableOptional table1 in -- TODO: This is probably incorrect?? Need to consider the relationship between the two tables? XXX
             let tableOptional2 = isTableOptional table2 in
-            let expr1' = mkExprB tableOptional1 table1 field1 in
-            let expr2' = mkExprB tableOptional2 table2 field2 in
+            let expr1' = mkExprTF tableOptional1 table1 field1 in
+            let expr2' = mkExprTF tableOptional2 table2 field2 in
             let fieldOptional1 = isTableFieldOptional table1 field1 in
             let fieldOptional2 = isTableFieldOptional table2 field2 in
             let optional1 = tableOptional1 || fieldOptional1 in
@@ -168,11 +195,11 @@ generateSql lEntityDefs s =
                   BinLE -> leE
                   binL -> lE
             in
-            NoBindS $ UInfixE expr1 op expr2
+            UInfixE expr1 op expr2
         mkExprBExpr _ (BExprBinOp b1 op b2) = error "TODO"
         mkExprBExpr _ _ = error "TODO"
 
-        mkExprB tableOptional table field = 
+        mkExprTF tableOptional table field = 
             let op = if tableOptional then questionE else carotE in
             let fieldName = mkName $ (headToUpper $ toLowerString table) ++ (headToUpper $ toLowerString field) in
             let var = varNameTableField table field in
@@ -187,7 +214,7 @@ generateSql lEntityDefs s =
                     else
                         findEntity t
             in
-            let ent = findEntity lEntityDefs in -- TODO: Use a typeclass to grab this?? XXX
+            let ent = findEntity lEntityDefs in
             let findField [] = error $ "Could not find field `" ++ fieldS ++ "`"
                 findField (h:t) = 
                     if toLowerString (lFieldHaskell h) == toLowerString fieldS then
@@ -343,9 +370,9 @@ data OrderBy = OrderBy [Order]
 
 data Order = OrderAsc Term | OrderDesc Term
 
-data Limit = Limit Int64
+data Limit = Limit Integer
 
-data Offset = Offset Int64
+data Offset = Offset Integer
 
 data Term = TermTF String TermField | TermF TermField
 data TermField = Field String | FieldAll
@@ -355,7 +382,7 @@ data BExpr = BExprAnd BExpr BExpr | BExprOr BExpr BExpr | BExprBinOp B BinOp B |
 data BinOp = BinEq | BinGE | BinG | BinLE | BinL
 
 data B = BTerm Term | BAnti String | BConst C
-data C = CBool Bool | CString String | CInt Int64 | CDouble Double
+data C = CBool Bool | CString String | CInt Integer | CDouble Double
 
 instance Show TermField where
     show (Field s) = s
