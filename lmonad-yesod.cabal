@@ -53,6 +53,7 @@ library
   -- Modules included in this library but not exported.
   other-modules:       
       Database.LPersist.Quasi
+    , Internal
   
   hs-source-dirs:
       src

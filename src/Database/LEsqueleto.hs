@@ -9,6 +9,7 @@ import Data.Attoparsec.Text
 import qualified Data.Char as Char
 import Data.Int (Int64)
 import qualified Data.List as List
+import Database.Persist.Types
 import qualified Data.Text as Text
 import Database.LPersist
 --import Database.Persist
@@ -16,6 +17,8 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Quote
 import LMonad
 import Yesod.Persist.Core
+
+import Internal
 
 lsql :: QuasiQuoter
 lsql = QuasiQuoter {
@@ -82,7 +85,7 @@ generateSql s =
         mkExprBExpr isTableOptional (BExprBinOp (BTerm term1) op' (BTerm term2)) = 
             let (table1,field1) = extractTableField term1 in
             let (table2,field2) = extractTableField term2 in
-            let tableOptional1 = isTableOptional table1 in
+            let tableOptional1 = isTableOptional table1 in -- TODO: This is probably incorrect?? Need to consider the relationship between the two tables? XXX
             let tableOptional2 = isTableOptional table2 in
             let expr1' = mkExprB tableOptional1 table1 field1 in
             let expr2' = mkExprB tableOptional2 table2 field2 in
@@ -109,15 +112,44 @@ generateSql s =
         mkExprBExpr _ (BExprBinOp b1 op b2) = error "TODO"
         mkExprBExpr _ _ = error "TODO"
 
-        mkExprB _ = undefined
+        mkExprB tableOptional table field = 
+            let op = if tableOptional then questionE else carotE in
+            let fieldName = mkName $ (headToUpper $ toLowerString table) ++ (headToUpper $ toLowerString field) in
+            let var = varNameTableField table field in
+            UInfixE (VarE var) op (VarE fieldName)
 
-        isTableFieldOptional = undefined
+
+        isTableFieldOptional tableS fieldS =
+            let findEntity [] = error $ "Could not find table `" ++ tableS ++ "`"
+                findEntity (h:t) = 
+                    if toLowerString (lEntityHaskell h) == toLowerString tableS then
+                        h
+                    else
+                        findEntity t
+            in
+            let ent = findEntity lEntityDefs in -- TODO: Use a typeclass to grab this?? XXX
+            let findField [] = error $ "Could not find field `" ++ fieldS ++ "`"
+                findField (h:t) = 
+                    if toLowerString (lFieldHaskell h) == toLowerString fieldS then
+                        h
+                    else
+                        findField t
+            in
+            let field = findField $ lEntityFields ent in
+            case lFieldType field of
+                FTApp (FTTypeCon _ "Maybe") _ ->
+                    True
+                _ ->
+                    False
+
 
         extractTableField (TermTF t (Field f)) = ( t, f)
         extractTableField (TermTF t FieldAll) = error $ "extractTableField: All fields requested for table `" ++ t ++ "`"
         extractTableField (TermF f) = error $ "extractTableField: Invalid terminal field `TermF " ++ (show f) ++ "`"
 
-        varNameTable table = mkName $ '_':(List.map Char.toLower table)
+        toLowerString = List.map Char.toLower
+        varNameTable table = mkName $ '_':(toLowerString table)
+        varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
 
         selectE = VarE $ mkName "select"
         fromE = VarE $ mkName "from"

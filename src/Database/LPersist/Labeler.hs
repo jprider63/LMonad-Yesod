@@ -13,6 +13,8 @@ import Database.Persist.Types
 import Language.Haskell.TH
 import Prelude
 
+import Internal
+
 -- | Functions that use TH to generate labeling code. 
 -- All examples in this documentation reference the following Persist model:
 --
@@ -336,7 +338,6 @@ mkProtectedEntityInstance labelType ent = do
 mkSerializedLEntityDefs :: [LEntityDef] -> [Dec]
 mkSerializedLEntityDefs ents' = 
     let ents = List.map mkSerializedLEntityDef ents' in
-    let body = ListE ents in
     let name = mkName "lEntityDefs" in
     let sig = SigD name $ AppT ListT $ ConT ''LEntityDef in
     let def = ValD (VarP name) (NormalB $ ListE ents) [] in
@@ -383,31 +384,6 @@ mkSerializedLEntityDefs ents' =
                   AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns
             in
             ListE $ map helper fields'
-
-data LEntityDef = LEntityDef
-    { lEntityHaskell :: !String
---     , lEntityDB      :: !String
---     , lEntityId      :: !FieldDef
---     , lEntityAttrs   :: ![Attr]
-    , lEntityFields  :: ![LFieldDef]
---     , lEntityUniques :: ![UniqueDef]
---     , lEntityForeigns:: ![ForeignDef]
---     , lEntityDerives :: ![Text]
---     , lEntityExtra   :: !(Map Text [ExtraLine])
---     , lEntitySum     :: !Bool
-    }
-
-data LFieldDef = LFieldDef
-    { lFieldHaskell   :: !String -- ^ name of the field
---    , lFieldDB        :: !String
-    , lFieldType      :: !FieldType
---    , lFieldSqlType   :: !SqlType
---    , lFieldAttrs     :: ![Attr]    -- ^ user annotations for a field
-    , lFieldStrict    :: !Bool      -- ^ a strict field in the data type. Default: true
---    , lFieldReference :: !ReferenceDef
-    , lFieldLabelAnnotations :: !(Maybe ([LabelAnnotation],[LabelAnnotation],[LabelAnnotation]))
-    }
-    deriving (Show, Eq, Read, Ord)
 
 toLEntityDef :: EntityDef -> LEntityDef
 toLEntityDef ent = LEntityDef {
@@ -514,17 +490,3 @@ parseChevrons s = case parseOnly parseC s of
         
         takeAlphaNum = takeWhile1 Char.isAlphaNum
             
-headToUpper :: String -> String
-headToUpper (h:t) = (Char.toUpper h):t
-headToUpper s = error $ "Invalid name `" ++ s ++ "`"
-
-headToLower :: String -> String
-headToLower (h:t) = (Char.toLower h):t
-headToLower s = error $ "Invalid name `" ++ s ++ "`"
-
-data LabelAnnotation = 
-    LAId
-  | LAConst String
-  | LAField String
-    deriving (Show, Eq, Read, Ord)
-
