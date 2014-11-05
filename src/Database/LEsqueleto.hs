@@ -118,7 +118,7 @@ generateSql lEntityDefs s =
     res <- newName "res"
     let query = 
           let tables = commandTables normalized in
-          BindS (VarP res) $ AppE selectE $ AppE fromE $ 
+          BindS (VarP res) $ AppE (VarE 'Esq.select) $ AppE (VarE 'Esq.from) $ 
             LamE [mkQueryPatternTables tables] $ DoE 
                 ((mkOnTables isTableOptional tables) 
                 ++ (mkWhere isTableOptional $ commandWhere normalized) 
@@ -135,10 +135,10 @@ generateSql lEntityDefs s =
         mkQueryPatternTables (Table table) = VarP $ varNameTable table
         mkQueryPatternTables (Tables ts j table _) = 
             let constr = case j of
-                  InnerJoin -> 'InnerJoin
-                  LeftOuterJoin -> 'LeftOuterJoin
-                  RightOuterJoin -> 'RightOuterJoin
-                  FullOuterJoin -> 'FullOuterJoin
+                  InnerJoin -> 'Esq.InnerJoin
+                  LeftOuterJoin -> 'Esq.LeftOuterJoin
+                  RightOuterJoin -> 'Esq.RightOuterJoin
+                  FullOuterJoin -> 'Esq.FullOuterJoin
                   -- CrossJoin -> 'CrossJoin
             in
             ConP constr [ mkQueryPatternTables ts, VarP $ varNameTable table]
@@ -182,25 +182,25 @@ generateSql lEntityDefs s =
             let optional2 = fieldOptional1 || fieldOptional2 in
             let ( expr1, expr2) = case ( optional1, optional2) of
                   ( True, False) ->
-                    ( expr1', AppE justE expr2')
+                    ( expr1', AppE (VarE 'Esq.just) expr2')
                   ( False, True) ->
-                    ( AppE justE expr1', expr2')
+                    ( AppE (VarE 'Esq.just) expr1', expr2')
                   _ ->
                     ( expr1', expr2')
             in
             let op = case op' of
-                  BinEq -> eqE
-                  BinGE -> geE
-                  BinG -> gE
-                  BinLE -> leE
-                  binL -> lE
+                  BinEq -> VarE '(Esq.==.)
+                  BinGE -> VarE '(Esq.>=.)
+                  BinG -> VarE '(Esq.>.)
+                  BinLE -> VarE '(Esq.<=.)
+                  binL -> VarE '(Esq.<.)
             in
             UInfixE expr1 op expr2
-        mkExprBExpr _ (BExprBinOp b1 op b2) = error "TODO"
-        mkExprBExpr _ _ = error "TODO"
+        mkExprBExpr _ (BExprBinOp b1 op b2) = undefined
+        mkExprBExpr _ _ = undefined
 
         mkExprTF tableOptional table field = 
-            let op = if tableOptional then questionE else carotE in
+            let op = VarE $ if tableOptional then '(Esq.?.) else '(Esq.^.) in
             let fieldName = mkName $ (headToUpper $ toLowerString table) ++ (headToUpper $ toLowerString field) in
             let var = varNameTableField table field in
             UInfixE (VarE var) op (VarE fieldName)
@@ -238,25 +238,26 @@ generateSql lEntityDefs s =
         varNameTable table = mkName $ '_':(toLowerString table)
         varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
 
-        selectE = VarE $ mkName "select"
-        fromE = VarE $ mkName "from"
-        where_E = VarE $ mkName "where_"
-        onE = VarE $ mkName "on"
-        justE = VarE $ mkName "just"
-        carotE = VarE $ mkName "^."
-        questionE = VarE $ mkName "?."
-        eqE = VarE $ mkName "==."
-        geE = VarE $ mkName ">=."
-        gE = VarE $ mkName ">."
-        leE = VarE $ mkName "<=."
-        lE = VarE $ mkName "<."
-        innerJoin = VarE $ mkName "InnerJoin"
-        leftOuterJoin = VarE $ mkName "LeftOuterJoin"
-        rightOuterJoin = VarE $ mkName "RightOuterJoin"
-        fullOuterJoin = VarE $ mkName "FullOuterJoin"
+        -- selectE = VarE $ mkName "select"
+        -- fromE = VarE $ mkName "from"
+        -- where_E = VarE $ mkName "where_"
+        -- onE = VarE $ mkName "on"
+        -- justE = VarE $ mkName "just"
+        -- carotE = VarE $ mkName "^."
+        -- questionE = VarE $ mkName "?."
+        -- eqE = VarE $ mkName "==."
+        -- geE = VarE $ mkName ">=."
+        -- gE = VarE $ mkName ">."
+        -- leE = VarE $ mkName "<=."
+        -- lE = VarE $ mkName "<."
+        -- innerJoin = VarE $ mkName "InnerJoin"
+        -- leftOuterJoin = VarE $ mkName "LeftOuterJoin"
+        -- rightOuterJoin = VarE $ mkName "RightOuterJoin"
+        -- fullOuterJoin = VarE $ mkName "FullOuterJoin"
         -- crossJoin = VarE $ mkName "CrossJoin"
 
-data ReqTerm = ReqField {
+data ReqTerm = 
+    ReqField {
         reqFieldTable :: String
       , reqFieldField :: String
       , reqFieldIsMaybe :: Bool
