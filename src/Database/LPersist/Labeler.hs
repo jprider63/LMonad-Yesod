@@ -359,11 +359,14 @@ toLFieldDef f = LFieldDef {
               ) Nothing attrs
 
 fieldTypeToType :: FieldType -> Type
-fieldTypeToType ft = case ft of
-    FTTypeCon Nothing con -> 
-        ConT $ mkName $ Text.unpack con
-    _ ->
-        error "TODO: will this ever happen??"
+fieldTypeToType (FTTypeCon Nothing con) = 
+    ConT $ mkName $ Text.unpack con
+fieldTypeToType (FTTypeCon (Just mod) con) = 
+    ConT $ mkName $ (Text.unpack mod) ++ "." ++ Text.unpack con
+fieldTypeToType (FTApp f x) = 
+    AppT (fieldTypeToType f) (fieldTypeToType x)
+fieldTypeToType (FTList x) = 
+    AppT ListT $ fieldTypeToType x
 
 getLEntityFieldType :: LEntityDef -> String -> Type
 getLEntityFieldType ent fName = 
