@@ -98,7 +98,32 @@ generateSql lEntityDefs s =
     in
     let normalized = normalizeTerms ast in
     let terms = undefined :: [ReqTerm] in
-    let isTableOptional = undefined :: String -> Bool in
+    let isTableOptional tableS =
+          let createAssoc (Tables ts join table _) lvl' =
+                let ( lvl, next, prev) = case join of
+                      LeftOuterJoin ->
+                        if lvl' == 0 then 
+                            ( 1, 0, 1)
+                        else
+                            ( lvl', lvl' - 1, 0)
+                      InnerJoin ->
+                        ( lvl', lvl', 0)
+                      RightOuterJoin -> 
+                        ( lvl', lvl' + 1, 0)
+                      FullOuterJoin ->
+                        ( lvl' + 1, lvl' + 1, 1)
+                in
+                let ( mapping, correction) = createAssoc ts next in
+                ( ( table, lvl + correction):mapping, prev + correction)
+              createAssoc (Table table) lvl = 
+                ( [( table, lvl)], lvl)
+          in
+          let ( mapping, _) = createAssoc (commandTables normalized) (0 :: Int) in
+          maybe 
+            (error $ "Could not find table `" ++ tableS ++ "`") 
+            (> 0) 
+            $ List.lookup tableS mapping
+    in
     {-
     ...
     normalize terms
@@ -154,6 +179,7 @@ generateSql lEntityDefs s =
                         OrderDesc t -> ( 'Esq.desc, extractTableField t)
                   in
                   AppE (VarE op) $ mkExprTF (isTableOptional table) table field
+                  -- AppE (VarE op) $ mkExprTF False table field
             in
             let ords = List.map helper ords' in
             [NoBindS $ AppE (VarE 'Esq.orderBy) $ ListE ords]
