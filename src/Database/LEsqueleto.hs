@@ -129,6 +129,7 @@ generateSql lEntityDefs s =
             (> 0) 
             $ List.lookup tableS mapping
     in
+    -- TODO: Add some check that all the table and field names used match up with existing things?? XXX
     {-
     ...
     normalize terms
@@ -162,9 +163,61 @@ generateSql lEntityDefs s =
                 ++ (mkOrderBy isTableOptional $ commandOrderBy normalized)
                 ++ (mkLimit $ commandLimit normalized)
                 ++ (mkOffset $ commandOffset normalized)
-                ++ undefined) -- TODO: return ...
+                ++ [NoBindS returns])
+    let taint = 
+          let fun = 
+                let pat = TupP $ List.map ( \rterm -> 
+                        let constr = case rterm of
+                              ReqField table field _ _ _ ->
+                                varNameTableField table field
+                              ReqEntity table ->
+                                varNameTable table
+                        in
+                        ConP 'Esq.Value [VarP constr]
+                      ) terms 
+                in
+                let body = 
+                      let getExpr table field = 
+                            let res = List.foldl' ( \acc rterm -> maybe ( case rterm of 
+                                    ReqField table' field' _ _ _
+                                      | table == table' && field == field' ->
+                                        Just $ VarE $ varNameTableField table field
+                                    ReqEntity table' 
+                                      | table == table' ->
+                                        let getter = mkName $ (headToLower table) ++ (headToUpper field) in
+                                        Just $ AppE (VarE getter) $ VarE $ varNameTable table
+                                    _ ->
+                                        acc
+                                    
+                                  ) Just acc ) Nothing terms 
+                            in
+                            maybe (error $ "Could not find expression for table `"++table++"` and field `"++field++"`") id res
+                      in
+                      let taints = List.foldr (\rterm acc -> case rterm of
+                                ReqField table field _ returning deps -> 
+                                    if returning && hasLabelsTableField table field then
+                                        let tainter = VarE $ mkName $ "read" ++ (headToUpper table) ++ (headToUpper field) ++ "Label'" in
+                                        let taint = AppE (VarE 'taintLabel) $ List.foldl' (\acc (table',field') -> 
+                                                AppE acc $ getExpr table' field'
+                                              ) tainter deps
+                                        in
+                                        (NoBindS taint):acc
+                                    else
+                                        acc
+                                ReqEntity table ->
+                                    if hasLabelsTable table then
+                                        (NoBindS $ AppE (VarE 'raiseLabelRead) (VarE $ varNameTable table)):acc
+                                    else
+                                        acc
+                                
+                            ) [] terms in
+                      let returns = undefined in
 
-    let taint = undefined
+                      DoE $ taints ++ [returns]
+                in
+                LamE [pat] body
+          in
+          AppE (AppE (VarE 'mapM) fun) (VarE res)
 
     return $ DoE [ query, taint]
 
@@ -182,6 +235,20 @@ generateSql lEntityDefs s =
 
         mkWhere _ Nothing = []
         mkWhere isTableOptional (Just (Where expr)) = [NoBindS $ AppE (VarE 'Esq.where_) $ mkExprBExpr isTableOptional expr]
+
+        hasLabelsHelper tableS f = List.foldl' (\acc ent -> 
+            if acc || (lEntityHaskell ent) /= tableS then
+                acc 
+            else 
+                List.foldl' (\acc field ->
+                    if acc || f field then
+                        acc
+                    else
+                        maybe False (\_ -> True) $ lFieldLabelAnnotations field
+                  ) False $ lEntityFields ent
+          ) False lEntityDefs
+        hasLabelsTable tableS = hasLabelsHelper tableS (\_ -> False)
+        hasLabelsTableField tableS fieldS = hasLabelsHelper tableS $ \f -> (lFieldHaskell f) /= fieldS
 
         mkOrderBy _ Nothing = []
         mkOrderBy isTableOptional (Just (OrderBy ords')) = 
@@ -239,9 +306,7 @@ generateSql lEntityDefs s =
 
         mkExprTF tableOptional table field = 
             let op = VarE $ if tableOptional then '(Esq.?.) else '(Esq.^.) in
-            -- let fieldName = mkName $ (headToUpper $ toLowerString table) ++ (headToUpper $ toLowerString field) in
-            -- let var = varNameTableField table field in
-            let fieldName = varNameTableField table field in
+            let fieldName = constrNameTableField table field in
             let var = varNameTable table in
             UInfixE (VarE var) op (VarE fieldName)
 
@@ -276,8 +341,8 @@ generateSql lEntityDefs s =
 
         toLowerString = List.map Char.toLower
         varNameTable table = mkName $ '_':(toLowerString table)
-        -- varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
-        varNameTableField table field = mkName $ (toUpperString table) ++ (toUpperString field)
+        varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
+        constrNameTableField table field = mkName $ (headToUpper table) ++ (headToUpper field)
 
         -- selectE = VarE $ mkName "select"
         -- fromE = VarE $ mkName "from"
