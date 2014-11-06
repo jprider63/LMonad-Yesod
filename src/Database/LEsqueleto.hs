@@ -36,8 +36,7 @@ mkLSql ents' =
 -- [ LEntityDef "User" [LFieldDef "ident" (FTTypeCon "Text") True Nothing, ...], ...]
 mkSerializedLEntityDefs :: [LEntityDef] -> Exp
 mkSerializedLEntityDefs ents' = 
-    let ents = List.map mkSerializedLEntityDef ents' in
-    ListE ents
+    ListE $ List.map mkSerializedLEntityDef ents'
 
     where
         mkSerializedLEntityDef ent = 
@@ -97,7 +96,13 @@ generateSql lEntityDefs s =
             res
     in
     let normalized = normalizeTerms ast in
-    let terms = undefined :: [ReqTerm] in
+    let terms = 
+          -- Get all requested terms
+          --    transform to ReqTerm
+          -- get the dependencies of all the other terms
+          --    union (and transform) into rest of dependency terms, requested false
+            undefined :: [ReqTerm] 
+    in
     let isTableOptional tableS =
           let createAssoc (Tables ts join table _) lvl' =
                 let ( lvl, next, prev) = case join of
@@ -143,6 +148,13 @@ generateSql lEntityDefs s =
     res <- newName "res"
     let query = 
           let tables = commandTables normalized in
+          let returns = AppE (VarE 'return) $ TupE $ List.map (\rterm -> case rterm of
+                    ReqField table field _ _ _ ->
+                        mkExprTF False table field -- TODO: Does the option matter here??? XXX
+                    ReqEntity ent -> 
+                        VarE $ mkName ent
+                ) terms 
+          in
           BindS (VarP res) $ AppE (VarE 'Esq.select) $ AppE (VarE 'Esq.from) $ 
             LamE [mkQueryPatternTables tables] $ DoE 
                 ((mkOnTables isTableOptional tables) 
@@ -227,8 +239,10 @@ generateSql lEntityDefs s =
 
         mkExprTF tableOptional table field = 
             let op = VarE $ if tableOptional then '(Esq.?.) else '(Esq.^.) in
-            let fieldName = mkName $ (headToUpper $ toLowerString table) ++ (headToUpper $ toLowerString field) in
-            let var = varNameTableField table field in
+            -- let fieldName = mkName $ (headToUpper $ toLowerString table) ++ (headToUpper $ toLowerString field) in
+            -- let var = varNameTableField table field in
+            let fieldName = varNameTableField table field in
+            let var = varNameTable table in
             UInfixE (VarE var) op (VarE fieldName)
 
 
@@ -262,7 +276,8 @@ generateSql lEntityDefs s =
 
         toLowerString = List.map Char.toLower
         varNameTable table = mkName $ '_':(toLowerString table)
-        varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
+        -- varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
+        varNameTableField table field = mkName $ (toUpperString table) ++ (toUpperString field)
 
         -- selectE = VarE $ mkName "select"
         -- fromE = VarE $ mkName "from"
