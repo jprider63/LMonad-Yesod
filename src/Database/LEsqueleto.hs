@@ -87,6 +87,7 @@ lsqlHelper ents = QuasiQuoter {
 
 --parse :: (Label l, PersistConfig c, LMonad m, m ~ HandlerT site IO) => Text -> PersistConfigBackend c (LMonadT l m) b
 --generateSql :: (Label l, m ~ HandlerT site IO, YesodLPersist site) => ReaderT (YesodPersistBackend site) (LMonadT l m) a 
+generateSql :: [LEntityDef] -> Text -> Q Exp
 generateSql lEntityDefs s = 
     -- Parse the DSL. 
     let ast = case parseOnly parseCommand s of
@@ -96,13 +97,7 @@ generateSql lEntityDefs s =
             res
     in
     let normalized = normalizeTerms ast in
-    let terms = 
-          -- Get all requested terms
-          --    transform to ReqTerm
-          -- get the dependencies of all the other terms
-          --    union (and transform) into rest of dependency terms, requested false
-            undefined :: [ReqTerm] 
-    in
+    let terms = reqTermsCommand normalized in 
     let isTableOptional tableS =
           let createAssoc (Tables ts join table _) lvl' =
                 let ( lvl, next, prev) = case join of
@@ -194,30 +189,38 @@ generateSql lEntityDefs s =
                             maybe (error $ "Could not find expression for table `"++table++"` and field `"++field++"`") id res
                       in
                       let taints = List.foldr (\rterm acc -> case rterm of
-                                ReqField table field _ returning deps -> 
-                                    if returning && hasLabelsTableField table field then
-                                        let tainter = VarE $ mkName $ "read" ++ (headToUpper table) ++ (headToUpper field) ++ "Label'" in
-                                        let taint = AppE (VarE 'taintLabel) $ List.foldl' (\acc (table',field') -> 
-                                                AppE acc $ getExpr table' field'
-                                              ) tainter deps
-                                        in
-                                        (NoBindS taint):acc
-                                    else
-                                        acc
-                                ReqEntity table ->
-                                    if hasLabelsTable table then
-                                        (NoBindS $ AppE (VarE 'raiseLabelRead) (VarE $ varNameTable table)):acc
-                                    else
-                                        acc
+                                ReqField _ _ _ False _ -> 
+                                    acc
+                                ReqField _ _ _ _ Nothing -> 
+                                    acc
+                                ReqField table field _ returning (Just deps) -> 
+                                    let tainter = VarE $ mkName $ "read" ++ (headToUpper table) ++ (headToUpper field) ++ "Label'" in
+                                    let taint = AppE (VarE 'taintLabel) $ List.foldl' (\acc (table',field') -> 
+                                            AppE acc $ getExpr table' field'
+                                          ) tainter deps
+                                    in
+                                    (NoBindS taint):acc
+                                ReqEntity table False ->
+                                    acc
+                                ReqEntity table True ->
+                                    (NoBindS $ AppE (VarE 'raiseLabelRead) (VarE $ varNameTable table)):acc
                                 
                             ) [] terms in
-                      let returns = undefined in
+                      let returns = NoBindS $ AppE (VarE 'return) $ TupE $ List.foldr (\rterm acc -> case rterm of
+                                ReqField table field _ ret _ -> 
+                                    if ret then
+                                        (VarE $ varNameTableField table field):acc
+                                    else
+                                        acc
+                                ReqEntity table -> 
+                                    (VarE $ varNameTable table):acc
+                            ) [] terms in
 
                       DoE $ taints ++ [returns]
                 in
                 LamE [pat] body
           in
-          AppE (AppE (VarE 'mapM) fun) (VarE res)
+          NoBindS $ AppE (AppE (VarE 'mapM) fun) (VarE res)
 
     return $ DoE [ query, taint]
 
@@ -310,8 +313,7 @@ generateSql lEntityDefs s =
             let var = varNameTable table in
             UInfixE (VarE var) op (VarE fieldName)
 
-
-        isTableFieldOptional tableS fieldS =
+        getLField tableS fieldS = 
             let findEntity [] = error $ "Could not find table `" ++ tableS ++ "`"
                 findEntity (h:t) = 
                     if toLowerString (lEntityHaskell h) == toLowerString tableS then
@@ -327,8 +329,10 @@ generateSql lEntityDefs s =
                     else
                         findField t
             in
-            let field = findField $ lEntityFields ent in
-            case lFieldType field of
+            findField $ lEntityFields ent
+
+        isTableFieldOptional tableS fieldS =
+            case lFieldType $ getLField tableS fieldS of
                 FTApp (FTTypeCon _ "Maybe") _ ->
                     True
                 _ ->
@@ -343,6 +347,23 @@ generateSql lEntityDefs s =
         varNameTable table = mkName $ '_':(toLowerString table)
         varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
         constrNameTableField table field = mkName $ (headToUpper table) ++ (headToUpper field)
+
+        reqTermsCommand (Command _ terms tables whereM orderByM limitM offsetM) = 
+            -- Get all requested terms
+            --    transform to ReqTerm
+            -- get the dependencies of all the other terms
+            --    union (and transform) into rest of dependency terms, requested false
+            let terms = List.map (reqTermsTerm True) $ commandTerms normalized in
+            undefined
+
+        reqTermsTerm returning (TermTF table field) = case field of
+            Field fieldS ->
+                let fieldDef = getLField table fieldS
+                let dep = maybe Nothing (\( anns, _, _) -> Just anns) lFieldLabelAnnotations fieldDef in
+                ReqField table field returning dep
+            FieldAll ->
+                ReqEntity table
+        reqTermsTerm _ (TermF _) = error "reqTermsTerm: normalization failed"
 
         -- selectE = VarE $ mkName "select"
         -- fromE = VarE $ mkName "from"
@@ -366,12 +387,13 @@ data ReqTerm =
     ReqField {
         reqFieldTable :: String
       , reqFieldField :: String
-      , reqFieldIsMaybe :: Bool
+--      , reqFieldIsMaybe :: Bool
       , reqFieldReturning :: Bool
-      , reqFieldDependencies :: [(String,String)] -- Contains ( table, field) dependencies.
+      , reqFieldDependencies :: Just [(String,String)] -- Contains ( table, field) dependencies.
     }
   | ReqEntity {
-        reqEntityTable :: String
+        reqEntityTable :: String -- Implied returning is true
+      , hasLabels :: Bool
     }
 
 -- | Normalize an AST by adding table name for all terms. Also expands out all the tables requested when TermsAll is applied. 
