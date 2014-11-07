@@ -622,7 +622,7 @@ parseCommand = do
     return $ Command select terms tables whereM orderByM limitM offsetM
 
     where
-        takeNonSpace = takeWhile1 (not . Char.isSpace)
+        -- takeNonSpace = takeWhile1 (not . Char.isSpace)
 
         takeAlphaNum = takeWhile1 Char.isAlphaNum
         takeUpperAlphaNum = do
@@ -794,7 +794,7 @@ parseCommand = do
                 skipSpace
                 _ <- asciiCI "#{"
                 skipSpace
-                var <- takeNonSpace -- TODO: maybe make this into a [String] and stop at '}'
+                var <- takeWhile1 (/= '}')--takeNonSpace -- TODO: maybe make this into a [String] and stop at '}'
                 skipSpace
                 _ <- char '}'
                 return $ BAnti $ Text.unpack var
