@@ -352,7 +352,7 @@ generateSql lEntityDefs s =
         varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
         constrNameTableField table field = mkName $ (headToUpper table) ++ (headToUpper field)
 
-        reqTermsCommand (Command _ terms tables whereM orderByM limitM offsetM) = 
+        reqTermsCommand (Command _ terms tables whereM orderByM _limitM _offsetM) = 
             -- Get all requested terms
             --    transform to ReqTerm
             -- get the dependencies of all the other terms
@@ -362,7 +362,57 @@ generateSql lEntityDefs s =
                   TermsAll -> error "reqTermsCommand: normalization failed"
             in
             let reqTerms = List.map (reqTermsTerm True) terms' in
-            undefined
+            let reqTerms' = reqTermsTables reqTerms tables in
+            let reqTerms'' = maybe reqTerms' (reqTermsWhere reqTerms') whereM in
+            maybe reqTerms'' (reqTermsOrderBy reqTerms'') orderByM
+            --let reqTerms''' = maybe reqTerms'' (reqTermsOrderBy reqTerms'') orderByM in
+            --let reqTerms'''' = maybe reqTerms''' (reqTermsLimit reqTerms''') limitM in
+            --maybe reqTerms'''' (reqTermsOffset reqTerms'''') offsetM
+
+        reqTermsOrderBy curTerms (OrderBy ords) = List.foldl' (\acc ord -> case ord of
+                OrderAsc t ->
+                    reqTermsTermMaybe acc t
+                OrderDesc t ->
+                    reqTermsTermMaybe acc t
+            ) curTerms ords
+
+        reqTermsWhere curTerms (Where bexpr) = reqTermsBExpr curTerms bexpr
+
+        reqTermsTables curTerms (Tables ts _ _ bexpr) = 
+            reqTermsTables (reqTermsBExpr curTerms bexpr) ts
+        reqTermsTables curTerms (Table _) = curTerms
+
+        reqTermsBExpr curTerms (BExprAnd e1 e2) = reqTermsBExpr (reqTermsBExpr curTerms e1) e2
+        reqTermsBExpr curTerms (BExprOr e1 e2) = reqTermsBExpr (reqTermsBExpr curTerms e1) e2
+        reqTermsBExpr curTerms (BExprBinOp b1 _ b2) = reqTermsB (reqTermsB curTerms b1) b2
+        reqTermsBExpr curTerms (BExprNull t) = reqTermsTermMaybe curTerms t
+        reqTermsBExpr curTerms (BExprNotNull t) = reqTermsTermMaybe curTerms t
+        reqTermsBExpr curTerms (BExprNot e) = reqTermsBExpr curTerms e
+
+        reqTermsB curTerms (BTerm t) = reqTermsTermMaybe curTerms t
+        reqTermsB curTerms _ = curTerms
+
+        -- Union in new term. Term should never be an entity.
+        reqTermsTermMaybe curTerms term = 
+            let ( tableS, fieldS) = extractTableField term in
+            let reqTerm = reqTermsTerm False term in
+            let cons = List.foldl' (\acc term -> case term of
+                    ReqEntity tableS' _ ->
+                        if tableS == tableS' then
+                            False
+                        else
+                            acc
+                    ReqField tableS' fieldS' returning _ ->
+                        if tableS == tableS' && fieldS == fieldS' then
+                            False
+                        else
+                            acc
+                  ) True curTerms
+            in
+            if cons then
+                reqTerm:curTerms
+            else
+                curTerms
 
         reqTermsTerm returning (TermTF tableS field) = case field of
             Field fieldS ->
