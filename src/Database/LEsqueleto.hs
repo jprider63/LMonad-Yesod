@@ -9,6 +9,7 @@ import Data.Attoparsec.Text
 import qualified Data.Char as Char
 import qualified Data.List as List
 import qualified Database.Esqueleto as Esq
+import Data.Maybe (isJust)
 import Database.Persist.Types
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -145,9 +146,9 @@ generateSql lEntityDefs s =
     let query = 
           let tables = commandTables normalized in
           let returns = AppE (VarE 'return) $ TupE $ List.map (\rterm -> case rterm of
-                    ReqField table field _ _ _ ->
+                    ReqField table field _ _ ->
                         mkExprTF False table field -- TODO: Does the option matter here??? XXX
-                    ReqEntity ent -> 
+                    ReqEntity ent _ -> 
                         VarE $ mkName ent
                 ) terms 
           in
@@ -163,9 +164,9 @@ generateSql lEntityDefs s =
           let fun = 
                 let pat = TupP $ List.map ( \rterm -> 
                         let constr = case rterm of
-                              ReqField table field _ _ _ ->
+                              ReqField table field _ _ ->
                                 varNameTableField table field
-                              ReqEntity table ->
+                              ReqEntity table _ ->
                                 varNameTable table
                         in
                         ConP 'Esq.Value [VarP constr]
@@ -174,10 +175,10 @@ generateSql lEntityDefs s =
                 let body = 
                       let getExpr table field = 
                             let res = List.foldl' ( \acc rterm -> maybe ( case rterm of 
-                                    ReqField table' field' _ _ _
+                                    ReqField table' field' _ _
                                       | table == table' && field == field' ->
                                         Just $ VarE $ varNameTableField table field
-                                    ReqEntity table' 
+                                    ReqEntity table' _
                                       | table == table' ->
                                         let getter = mkName $ (headToLower table) ++ (headToUpper field) in
                                         Just $ AppE (VarE getter) $ VarE $ varNameTable table
@@ -189,11 +190,11 @@ generateSql lEntityDefs s =
                             maybe (error $ "Could not find expression for table `"++table++"` and field `"++field++"`") id res
                       in
                       let taints = List.foldr (\rterm acc -> case rterm of
-                                ReqField _ _ _ False _ -> 
+                                ReqField _ _ False _ -> 
                                     acc
-                                ReqField _ _ _ _ Nothing -> 
+                                ReqField _ _ _ Nothing -> 
                                     acc
-                                ReqField table field _ returning (Just deps) -> 
+                                ReqField table field returning (Just deps) -> 
                                     let tainter = VarE $ mkName $ "read" ++ (headToUpper table) ++ (headToUpper field) ++ "Label'" in
                                     let taint = AppE (VarE 'taintLabel) $ List.foldl' (\acc (table',field') -> 
                                             AppE acc $ getExpr table' field'
@@ -207,12 +208,12 @@ generateSql lEntityDefs s =
                                 
                             ) [] terms in
                       let returns = NoBindS $ AppE (VarE 'return) $ TupE $ List.foldr (\rterm acc -> case rterm of
-                                ReqField table field _ ret _ -> 
+                                ReqField table field ret _ -> 
                                     if ret then
                                         (VarE $ varNameTableField table field):acc
                                     else
                                         acc
-                                ReqEntity table -> 
+                                ReqEntity table _ -> 
                                     (VarE $ varNameTable table):acc
                             ) [] terms in
 
@@ -313,7 +314,7 @@ generateSql lEntityDefs s =
             let var = varNameTable table in
             UInfixE (VarE var) op (VarE fieldName)
 
-        getLField tableS fieldS = 
+        getLTable tableS = 
             let findEntity [] = error $ "Could not find table `" ++ tableS ++ "`"
                 findEntity (h:t) = 
                     if toLowerString (lEntityHaskell h) == toLowerString tableS then
@@ -321,7 +322,10 @@ generateSql lEntityDefs s =
                     else
                         findEntity t
             in
-            let ent = findEntity lEntityDefs in
+            findEntity lEntityDefs
+
+        getLTableField tableS fieldS = 
+            let ent = getLTable tableS in
             let findField [] = error $ "Could not find field `" ++ fieldS ++ "`"
                 findField (h:t) = 
                     if toLowerString (lFieldHaskell h) == toLowerString fieldS then
@@ -332,7 +336,7 @@ generateSql lEntityDefs s =
             findField $ lEntityFields ent
 
         isTableFieldOptional tableS fieldS =
-            case lFieldType $ getLField tableS fieldS of
+            case lFieldType $ getLTableField tableS fieldS of
                 FTApp (FTTypeCon _ "Maybe") _ ->
                     True
                 _ ->
@@ -353,16 +357,31 @@ generateSql lEntityDefs s =
             --    transform to ReqTerm
             -- get the dependencies of all the other terms
             --    union (and transform) into rest of dependency terms, requested false
-            let terms = List.map (reqTermsTerm True) $ commandTerms normalized in
+            let terms' = case terms of 
+                  Terms terms -> terms
+                  TermsAll -> error "reqTermsCommand: normalization failed"
+            in
+            let reqTerms = List.map (reqTermsTerm True) terms' in
             undefined
 
-        reqTermsTerm returning (TermTF table field) = case field of
+        reqTermsTerm returning (TermTF tableS field) = case field of
             Field fieldS ->
-                let fieldDef = getLField table fieldS
-                let dep = maybe Nothing (\( anns, _, _) -> Just anns) lFieldLabelAnnotations fieldDef in
-                ReqField table field returning dep
+                let fieldDef = getLTableField tableS fieldS in
+                let dep = maybe Nothing (\( anns, _, _) -> Just $ List.foldl' (\acc ann -> case ann of
+                        LAId ->
+                            ( tableS, "id"):acc
+                        LAConst s ->
+                            acc
+                        LAField f -> 
+                            ( tableS, f):acc
+                      ) [] anns ) $ lFieldLabelAnnotations fieldDef in
+                ReqField tableS fieldS returning dep
             FieldAll ->
-                ReqEntity table
+                let hasDeps = 
+                      let ent = getLTable tableS in
+                      List.foldl' (\acc f -> acc || isJust (lFieldLabelAnnotations f)) False $ lEntityFields ent
+                in
+                ReqEntity tableS hasDeps
         reqTermsTerm _ (TermF _) = error "reqTermsTerm: normalization failed"
 
         -- selectE = VarE $ mkName "select"
@@ -389,7 +408,7 @@ data ReqTerm =
       , reqFieldField :: String
 --      , reqFieldIsMaybe :: Bool
       , reqFieldReturning :: Bool
-      , reqFieldDependencies :: Just [(String,String)] -- Contains ( table, field) dependencies.
+      , reqFieldDependencies :: Maybe [(String,String)] -- Contains ( table, field) dependencies.
     }
   | ReqEntity {
         reqEntityTable :: String -- Implied returning is true
