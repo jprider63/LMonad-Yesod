@@ -73,6 +73,7 @@ library
     , base
     , containers
     , esqueleto
+    , haskell-src-meta
     , lifted-base
     , lmonad
     , mtl

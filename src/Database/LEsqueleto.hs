@@ -15,6 +15,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Database.LPersist
 --import Database.Persist
+import qualified Language.Haskell.Meta.Parse as Meta
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
 import LMonad
@@ -297,22 +298,45 @@ generateSql lEntityDefs s =
                   _ ->
                     ( expr1', expr2')
             in
-            let op = case op' of
-                  BinEq -> VarE '(Esq.==.)
-                  BinGE -> VarE '(Esq.>=.)
-                  BinG -> VarE '(Esq.>.)
-                  BinLE -> VarE '(Esq.<=.)
-                  binL -> VarE '(Esq.<.)
-            in
+            let op = mkExprBOp op' in
             UInfixE expr1 op expr2
-        mkExprBExpr _ (BExprBinOp b1 op b2) = undefined
-        mkExprBExpr _ _ = undefined
+        mkExprBExpr _ (BExprBinOp b1 op b2) = UInfixE
+            (mkExprB b1) (mkExprBOp op) (mkExprB b2)
+        mkExprBExpr isTableOptional (BExprAnd e1 e2) = UInfixE 
+            (mkExprBExpr isTableOptional e1) (VarE '(Esq.&&.)) (mkExprBExpr isTableOptional e2)
+        mkExprBExpr isTableOptional (BExprOr e1 e2) = UInfixE 
+            (mkExprBExpr isTableOptional e1) (VarE '(Esq.||.)) (mkExprBExpr isTableOptional e2)
+        mkExprBExpr isTableOptional (BExprNull t) = AppE (VarE 'Esq.isNothing) $ mkExprTerm False t
+        mkExprBExpr isTableOptional (BExprNotNull t) = AppE (VarE 'Esq.not_) $ AppE (VarE 'Esq.isNothing) $ mkExprTerm False t
+        mkExprBExpr isTableOptional (BExprNot expr) = AppE (VarE 'Esq.not_) $ mkExprBExpr isTableOptional expr
+
+        mkExprBOp BinEq = VarE '(Esq.==.)
+        mkExprBOp BinGE = VarE '(Esq.>=.)
+        mkExprBOp BinG = VarE '(Esq.>.)
+        mkExprBOp BinLE = VarE '(Esq.<=.)
+        mkExprBOp BinL = VarE '(Esq.<.)
+
+        mkExprB (BTerm t) = mkExprTerm False t
+        mkExprB (BAnti s) = case Meta.parseExp s of
+            Left e -> error e
+            Right e -> e
+        mkExprB (BConst c) = mkExprConst c 
+
+        mkExprConst (CBool True) = AppE (VarE 'Esq.val) $ ConE 'True
+        mkExprConst (CBool False) = AppE (VarE 'Esq.val) $ ConE 'False
+        mkExprConst (CString s) = AppE (VarE 'Esq.val) $ LitE $ StringL s
+        mkExprConst (CInt i) = AppE (VarE 'Esq.val) $ LitE $ IntegerL i
+        mkExprConst (CDouble d) = AppE (VarE 'Esq.val) $ LitE $ DoublePrimL $ toRational d
 
         mkExprTF tableOptional table field = 
             let op = VarE $ if tableOptional then '(Esq.?.) else '(Esq.^.) in
             let fieldName = constrNameTableField table field in
             let var = varNameTable table in
             UInfixE (VarE var) op (VarE fieldName)
+
+        mkExprTerm optional term = 
+            let (tableS, fieldS) = extractTableField term in
+            mkExprTF optional tableS fieldS
 
         getLTable tableS = 
             let findEntity [] = error $ "Could not find table `" ++ tableS ++ "`"
