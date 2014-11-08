@@ -166,11 +166,11 @@ generateSql lEntityDefs s =
                 let pat = TupP $ List.map ( \rterm -> 
                         let constr = case rterm of
                               ReqField table field _ _ ->
-                                varNameTableField table field
+                                VarP $ varNameTableField table field
                               ReqEntity table _ ->
-                                varNameTable table
+                                ConP 'Entity [ VarP $ varNameTableField table "id", VarP $ varNameTable table]
                         in
-                        ConP 'Esq.Value [VarP constr]
+                        ConP 'Esq.Value [constr]
                       ) terms 
                 in
                 let body = 
@@ -181,8 +181,11 @@ generateSql lEntityDefs s =
                                         Just $ VarE $ varNameTableField table field
                                     ReqEntity table' _
                                       | table == table' ->
-                                        let getter = mkName $ (headToLower table) ++ (headToUpper field) in
-                                        Just $ AppE (VarE getter) $ VarE $ varNameTable table
+                                        if field == "id" then
+                                            Just $ VarE $ varNameTableField table field
+                                        else
+                                            let getter = mkName $ (headToLower table) ++ (headToUpper field) in
+                                            Just $ AppE (VarE getter) $ VarE $ varNameTable table
                                     _ ->
                                         acc
                                     
