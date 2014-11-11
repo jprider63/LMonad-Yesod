@@ -342,7 +342,7 @@ toLFieldDef :: FieldDef -> LFieldDef
 toLFieldDef f = LFieldDef {
         lFieldHaskell = Text.unpack $ unHaskellName $ fieldHaskell f
 --       , lFieldDB = Text.unpack $ unDBName $ fieldDB f
-      , lFieldType = fieldType f
+      , lFieldType = typ
       , lFieldStrict = fieldStrict f
       , lFieldLabelAnnotations = labels
     }
@@ -357,6 +357,15 @@ toLFieldDef f = LFieldDef {
                 else
                     Just $ parseChevrons affix
               ) Nothing attrs
+        typ = if nullable (fieldAttrs f) then
+                FTApp (FTTypeCon Nothing "Maybe") $ fieldType f
+            else
+                fieldType f
+        nullable s 
+            | "Maybe" `elem` s = True
+            | "nullable" `elem` s = True
+            | otherwise = False
+
 
 fieldTypeToType :: FieldType -> Type
 fieldTypeToType (FTTypeCon Nothing con) = 
