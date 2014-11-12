@@ -12,6 +12,8 @@ import Data.Monoid (Last(..), mempty)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (toLazyText)
 import Data.Text.Lazy.Encoding (encodeUtf8)
+import Language.Haskell.TH
+import Language.Haskell.TH.Quote
 import LMonad
 import Text.Blaze ( customAttribute, textTag, toValue, (!))
 import qualified Text.Blaze.Html5 as TBH
@@ -159,14 +161,8 @@ widgetToPageContent = swapBase $ \w -> do
                             Nothing -> Nothing
                             Just j -> Just $ jelper j
 
--- Yesod.Core.widgetToPageContent :: WidgetT site IO ()
---                     -> HandlerT site IO (PageContent (Route site))
-
 handlerToWidget :: (Label l, LMonad (HandlerT site IO), LMonad (WidgetT site IO)) => LMonadT l (HandlerT site IO) a -> LMonadT l (WidgetT site IO) a
 handlerToWidget = swapBase Yesod.handlerToWidget
 
+whamletL = QuasiQuoter { quoteExp = \s -> quoteExp Yesod.whamlet s >>= return . (AppE (VarE 'lLift)) }
 
-    -- set m's current state, run m, set current state to m's
-
--- handlerToWidget :: Monad m => HandlerT site m a -> WidgetT site m a
--- handlerToWidget (HandlerT f) = WidgetT $ liftM (, mempty) . f
