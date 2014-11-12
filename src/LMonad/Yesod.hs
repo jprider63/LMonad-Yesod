@@ -166,3 +166,20 @@ handlerToWidget = swapBase Yesod.handlerToWidget
 
 whamletL = QuasiQuoter { quoteExp = \s -> quoteExp Yesod.whamlet s >>= return . (AppE (VarE 'lLift)) }
 
+extractWidget :: (Label l, LMonad (WidgetT site IO)) => LMonadT l (WidgetT site IO) () -> LMonadT l (WidgetT site IO) (WidgetT site IO ())
+extractWidget = swapBase f
+    where
+        f :: (WidgetT site IO ((), l)) -> WidgetT site IO (WidgetT site IO (), l)
+        -- f (WidgetT w) = WidgetT $ \h -> do
+        --     (((), s),g) <- w h
+        --     return ((WidgetT (\i -> do
+        --             (((),_),h) <- w i
+        --             return ((),mappend h g)
+        --         ), s), g)
+        f (WidgetT w) = WidgetT $ \h -> do
+            (((), s),g) <- w h
+            return ((WidgetT (\_ -> do
+                    -- (((),_),g) <- w i
+                    return ((),g)
+                ), s), g)
+
