@@ -49,6 +49,7 @@ library
     , Database.LPersist
     , Database.LPersist.Labeler
     , Database.LPersist.TH
+    , LMonad.Yesod
   
   -- Modules included in this library but not exported.
   other-modules:       
@@ -71,6 +72,8 @@ library
   build-depends:
       attoparsec
     , base
+    , blaze-html
+    , blaze-markup
     , containers
     , esqueleto
     , haskell-src-meta
@@ -78,6 +81,7 @@ library
     , lmonad
     , mtl
     , persistent
+    , shakespeare
     , tagged
     , template-haskell
     , text
