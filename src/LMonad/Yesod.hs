@@ -2,7 +2,7 @@
 
 
 
-{-# LANGUAGE FlexibleContexts, TemplateHaskell, QuasiQuotes, OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts, TemplateHaskell, QuasiQuotes, OverloadedStrings, TypeFamilies #-}
 module LMonad.Yesod where
 
 import Control.Monad (forM)
@@ -164,7 +164,7 @@ widgetToPageContent = swapBase $ \w -> do
 handlerToWidget :: (Label l, LMonad (HandlerT site IO), LMonad (WidgetT site IO)) => LMonadT l (HandlerT site IO) a -> LMonadT l (WidgetT site IO) a
 handlerToWidget = swapBase Yesod.handlerToWidget
 
-whamletL = QuasiQuoter { quoteExp = \s -> quoteExp Yesod.whamlet s >>= return . (AppE (VarE 'lLift)) }
+whamlet = QuasiQuoter { quoteExp = \s -> quoteExp Yesod.whamlet s >>= return . (AppE (VarE 'lLift)) }
 
 extractWidget :: (Label l, LMonad (WidgetT site IO)) => LMonadT l (WidgetT site IO) () -> LMonadT l (WidgetT site IO) (WidgetT site IO ())
 extractWidget = swapBase f
@@ -182,4 +182,14 @@ extractWidget = swapBase f
                     -- (((),_),g) <- w i
                     return ((),g)
                 ), s), g)
+
+instance (MonadResource m, Label l, LMonad m) => MonadResource (LMonadT l m) where
+    liftResourceT = lLift . liftResourceT
+
+instance (MonadHandler m, Label l, LMonad m) => MonadHandler (LMonadT l m) where
+    type HandlerSite (LMonadT l m) = HandlerSite m
+    liftHandlerT = lLift . liftHandlerT
+
+instance (MonadWidget m, Label l, LMonad m) => MonadWidget (LMonadT l m) where
+    liftWidgetT = lLift . liftWidgetT
 
