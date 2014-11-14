@@ -181,7 +181,7 @@ extractWidget = swapBase f
             return ((WidgetT (\_ -> do
                     -- (((),_),g) <- w i
                     return ((),g)
-                ), s), g)
+                ), s), mempty)
 
 instance (MonadResource m, Label l, LMonad m) => MonadResource (LMonadT l m) where
     liftResourceT = lLift . liftResourceT
