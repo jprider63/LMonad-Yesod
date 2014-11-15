@@ -349,15 +349,19 @@ generateSql lEntityDefs s =
             findEntity lEntityDefs
 
         getLTableField tableS fieldS = 
-            let ent = getLTable tableS in
-            let findField [] = error $ "Could not find field `" ++ fieldS ++ "`"
-                findField (h:t) = 
-                    if toLowerString (lFieldHaskell h) == toLowerString fieldS then
-                        h
-                    else
-                        findField t
-            in
-            findField $ lEntityFields ent
+            if fieldS == "id" then
+                let typ = FTTypeCon Nothing (Text.pack $ tableS ++ "Id") in
+                LFieldDef fieldS typ True Nothing
+            else
+                let ent = getLTable tableS in
+                let findField [] = error $ "Could not find field `" ++ fieldS ++ "` for table `" ++ tableS ++ "`"
+                    findField (h:t) = 
+                        if toLowerString (lFieldHaskell h) == toLowerString fieldS then
+                            h
+                        else
+                            findField t
+                in
+                findField $ lEntityFields ent
 
         isTableFieldOptional tableS fieldS =
             case lFieldType $ getLTableField tableS fieldS of
