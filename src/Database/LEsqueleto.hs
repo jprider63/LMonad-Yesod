@@ -614,6 +614,7 @@ parseCommand :: Parser Command
 parseCommand = do
     select <- parseSelect
     terms <- parseTerms
+    _ <- parseFrom
     tables <- parseTables
     whereM <- parseWhere
     orderByM <- parseOrderBy
@@ -652,6 +653,10 @@ parseCommand = do
             in
             (skipSpace >> char '*' >> (return TermsAll)) <|> (parseTerms' >>= return . Terms)
             
+        parseFrom = do
+            skipSpace
+            asciiCI "FROM"
+
         parseTerm = do
             skipSpace
             ( do
