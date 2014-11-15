@@ -163,11 +163,11 @@ generateSql lEntityDefs s =
                 let pat = TupP $ List.map ( \rterm -> 
                         let constr = case rterm of
                               ReqField table field _ _ ->
-                                VarP $ varNameTableField table field
+                                ConP 'Esq.Value [VarP $ varNameTableField table field]
                               ReqEntity table _ ->
-                                ConP 'Entity [ VarP $ varNameTableField table "id", VarP $ varNameTable table]
+                                AsP (varNameTableE table) $ ConP 'Entity [ VarP $ varNameTableField table "id", VarP $ varNameTable table]
                         in
-                        ConP 'Esq.Value [constr]
+                        constr
                       ) terms 
                 in
                 let body = 
@@ -195,7 +195,7 @@ generateSql lEntityDefs s =
                                     acc
                                 ReqField _ _ _ Nothing -> 
                                     acc
-                                ReqField table field returning (Just deps) -> 
+                                ReqField table field _returning (Just deps) -> 
                                     let tainter = VarE $ mkName $ "read" ++ (headToUpper table) ++ (headToUpper field) ++ "Label'" in
                                     let taint = AppE (VarE 'taintLabel) $ List.foldl' (\acc (table',field') -> 
                                             AppE acc $ getExpr table' field'
@@ -215,7 +215,7 @@ generateSql lEntityDefs s =
                                     else
                                         acc
                                 ReqEntity table _ -> 
-                                    (VarE $ varNameTable table):acc
+                                    (VarE $ varNameTableE table):acc
                             ) [] terms in
 
                       DoE $ taints ++ [returns]
@@ -224,6 +224,7 @@ generateSql lEntityDefs s =
           in
           NoBindS $ AppE (AppE (VarE 'mapM) fun) (VarE res)
 
+    -- error $ pprint $ DoE [ query, taint]
     return $ DoE [ query, taint]
 
     where
@@ -377,6 +378,7 @@ generateSql lEntityDefs s =
 
         toLowerString = List.map Char.toLower
         varNameTable table = mkName $ '_':(toLowerString table)
+        varNameTableE table = mkName $ '_':'e':'_':(toLowerString table)
         varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
         constrNameTableField table field = mkName $ (headToUpper table) ++ (headToUpper field)
 
@@ -421,6 +423,7 @@ generateSql lEntityDefs s =
         reqTermsB curTerms _ = curTerms
 
         -- Union in new term. Term should never be an entity.
+        reqTermsTermMaybe :: [ReqTerm] -> Term -> [ReqTerm]
         reqTermsTermMaybe curTerms term = 
             let ( tableS, fieldS) = extractTableField term in
             let reqTerm = reqTermsTerm False term in
@@ -487,6 +490,7 @@ data ReqTerm =
 --      , reqFieldIsMaybe :: Bool
       , reqFieldReturning :: Bool
       , reqFieldDependencies :: Maybe [(String,String)] -- Contains ( table, field) dependencies.
+--      , reqFieldIsDependency :: Bool
     }
   | ReqEntity {
         reqEntityTable :: String -- Implied returning is true
