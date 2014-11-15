@@ -147,7 +147,7 @@ generateSql lEntityDefs s =
                     ReqField table field _ _ ->
                         mkExprTF False table field -- TODO: Does the option matter here??? XXX
                     ReqEntity ent _ -> 
-                        VarE $ mkName ent
+                        VarE $ varNameTable ent
                 ) terms 
           in
           BindS (VarP res) $ AppE (VarE 'Esq.select) $ AppE (VarE 'Esq.from) $ 
@@ -276,7 +276,7 @@ generateSql lEntityDefs s =
 
         mkOnTables _ (Table table) = []
         mkOnTables isTableOptional (Tables ts _ _ bexpr@(BExprBinOp (BTerm term1) BinEq (BTerm term2))) = 
-            (NoBindS $ mkExprBExpr isTableOptional bexpr):(mkOnTables isTableOptional ts)
+            (NoBindS $ AppE (VarE 'Esq.on) $ mkExprBExpr isTableOptional bexpr):(mkOnTables isTableOptional ts)
         mkOnTables _ (Tables _ _ table _) = error $ "mkOnTables: Invalid on expression for table `" ++ table ++ "`"
 
         mkExprBExpr isTableOptional (BExprBinOp (BTerm term1) op' (BTerm term2)) = 
@@ -319,7 +319,7 @@ generateSql lEntityDefs s =
         mkExprB (BTerm t) = mkExprTerm False t
         mkExprB (BAnti s) = case Meta.parseExp s of
             Left e -> error e
-            Right e -> e
+            Right e -> AppE (VarE 'Esq.val) $ e
         mkExprB (BConst c) = mkExprConst c 
 
         mkExprConst (CBool True) = AppE (VarE 'Esq.val) $ ConE 'True
@@ -332,7 +332,7 @@ generateSql lEntityDefs s =
             let op = VarE $ if tableOptional then '(Esq.?.) else '(Esq.^.) in
             let fieldName = constrNameTableField table field in
             let var = varNameTable table in
-            UInfixE (VarE var) op (VarE fieldName)
+            UInfixE (VarE var) op (ConE fieldName)
 
         mkExprTerm optional term = 
             let (tableS, fieldS) = extractTableField term in
@@ -582,33 +582,48 @@ data Command = Command {
       , commandLimit :: Maybe Limit
       , commandOffset :: Maybe Offset
     }
+    deriving (Show)
 data Select = Select | PSelect
+    deriving (Show)
 
 --data Terms = Term Term | Terms Terms Term | TermsAll
 data Terms = Terms [Term] | TermsAll
+    deriving (Show)
 
 data Tables = Table String | Tables Tables Join String BExpr
+    deriving (Show)
 data Join = InnerJoin | LeftOuterJoin | RightOuterJoin | FullOuterJoin -- | CrossJoin
+    deriving (Show)
 
 data Where = Where BExpr
+    deriving (Show)
 
 data OrderBy = OrderBy [Order]
+    deriving (Show)
 
 data Order = OrderAsc Term | OrderDesc Term
+    deriving (Show)
 
 data Limit = Limit Integer
+    deriving (Show)
 
 data Offset = Offset Integer
+    deriving (Show)
 
 data Term = TermTF String TermField | TermF TermField
+    deriving (Show)
 data TermField = Field String | FieldAll
 
 data BExpr = BExprAnd BExpr BExpr | BExprOr BExpr BExpr | BExprBinOp B BinOp B | BExprNull Term | BExprNotNull Term | BExprNot BExpr
+    deriving (Show)
 
 data BinOp = BinEq | BinGE | BinG | BinLE | BinL
+    deriving (Show)
 
 data B = BTerm Term | BAnti String | BConst C
+    deriving (Show)
 data C = CBool Bool | CString String | CInt Integer | CDouble Double
+    deriving (Show)
 
 instance Show TermField where
     show (Field s) = s
