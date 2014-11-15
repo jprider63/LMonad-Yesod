@@ -3,8 +3,6 @@
 module Database.LEsqueleto (mkLSql) where
 
 import Control.Applicative
-import Control.Monad
-import Control.Monad.Trans.Reader
 import Data.Attoparsec.Text
 import qualified Data.Char as Char
 import qualified Data.List as List
@@ -19,16 +17,15 @@ import qualified Language.Haskell.Meta.Parse as Meta
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
 import LMonad
-import Yesod.Persist.Core
 
 import Internal
 
 -- | Generate the quasiquoter function `lsql` that parses the esqueleto DSL.
-mkLSql :: [LEntityDef] -> Q [Dec]
+mkLSql :: [EntityDef] -> Q [Dec]
 mkLSql ents' = 
     let lsql = mkName "lsql" in
     let sig = SigD lsql (ConT ''QuasiQuoter) in
-    let ents = mkSerializedLEntityDefs ents' in
+    let ents = mkSerializedLEntityDefs $ map toLEntityDef ents' in
     let def = ValD (VarP lsql) (NormalB (AppE (VarE 'lsqlHelper) ents)) [] in
     return [ sig, def]
 

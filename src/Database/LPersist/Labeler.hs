@@ -2,12 +2,9 @@
 
 module Database.LPersist.Labeler (mkLabels) where
 
-import Control.Applicative
 import Control.Monad
-import Data.Attoparsec.Text
 import qualified Data.Char as Char
 import qualified Data.List as List
-import Data.Text (Text)
 import qualified Data.Text as Text
 import Database.Persist.Types
 import Language.Haskell.TH
@@ -331,42 +328,6 @@ mkProtectedEntityInstance labelType ent = do
 
 
 
-toLEntityDef :: EntityDef -> LEntityDef
-toLEntityDef ent = LEntityDef {
-        lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
---      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
-      , lEntityFields = map toLFieldDef (entityFields ent)
-    }
-
-toLFieldDef :: FieldDef -> LFieldDef
-toLFieldDef f = LFieldDef {
-        lFieldHaskell = Text.unpack $ unHaskellName $ fieldHaskell f
---       , lFieldDB = Text.unpack $ unDBName $ fieldDB f
-      , lFieldType = typ
-      , lFieldStrict = fieldStrict f
-      , lFieldLabelAnnotations = labels
-    }
-
-    where
-        labels = 
-            let attrs = fieldAttrs f in
-            List.foldl' (\acc attr -> 
-                let ( prefix, affix) = Text.splitAt 9 attr in
-                if acc /= Nothing || prefix /= "chevrons=" then
-                    acc
-                else
-                    Just $ parseChevrons affix
-              ) Nothing attrs
-        typ = if nullable (fieldAttrs f) then
-                FTApp (FTTypeCon Nothing "Maybe") $ fieldType f
-            else
-                fieldType f
-        nullable s 
-            | "Maybe" `elem` s = True
-            | "nullable" `elem` s = True
-            | otherwise = False
-
-
 fieldTypeToType :: FieldType -> Type
 fieldTypeToType (FTTypeCon Nothing con) = 
     ConT $ mkName $ Text.unpack con
@@ -392,59 +353,3 @@ getLEntityFieldType ent fName =
         Just f ->
             f
 
--- Parse chevrons
--- C = < L , L , L >
--- L = K | _
--- K = A || K | A
--- A = Id | Const name | Field name
-
-parseChevrons :: Text -> ([LabelAnnotation],[LabelAnnotation],[LabelAnnotation])
-parseChevrons s = case parseOnly parseC s of
-    Left err ->
-        error $ "Could not parse labels in chevrons: " ++ err
-    Right res ->
-        res
-
-    where
-        parseC = do
-            read <- parseL
-            skipSpace
-            _ <- char ','
-            write <- parseL
-            skipSpace
-            _ <- char ','
-            create <- parseL
-            return (read,write,create)
-
-        parseL = (skipSpace >> char '_' >> return []) <|> parseK
-        
-        parseK = do
-            la <- parseA
-            tail <- (do
-                skipSpace
-                _ <- char '|'
-                _ <- char '|'
-                parseK
-              ) <|> (return [])
-
-            return $ la:tail
-
-        parseA = do
-            skipSpace
-            constr <- takeAlphaNum
-            case constr of
-                "Id" -> 
-                    return LAId
-                "Const" -> do
-                    skipSpace
-                    name <- takeAlphaNum
-                    return $ LAConst $ Text.unpack name
-                "Field" -> do
-                    skipSpace
-                    name <- takeAlphaNum
-                    return $ LAField $ Text.unpack name
-                _ -> 
-                    fail $ "Unknown keyword `" ++ (Text.unpack constr) ++ "` in parseChevrons. Use `Id`, `Const`, `Field`, or `_`"
-        
-        takeAlphaNum = takeWhile1 Char.isAlphaNum
-            
