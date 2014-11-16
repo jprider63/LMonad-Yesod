@@ -1,12 +1,13 @@
 {-# LANGUAGE TemplateHaskell, OverloadedStrings #-}
 
-module Database.LEsqueleto (mkLSql) where
+module Database.LEsqueleto (mkLSql, module Export) where
 
 import Control.Applicative
 import Data.Attoparsec.Text
 import qualified Data.Char as Char
 import qualified Data.List as List
 import qualified Database.Esqueleto as Esq
+import Database.Esqueleto as Export (Value(..))
 import Data.Maybe (isJust)
 import Database.Persist.Types
 import Data.Text (Text)
