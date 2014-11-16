@@ -28,7 +28,10 @@ mkLSql ents' =
     let sig = SigD lsql (ConT ''QuasiQuoter) in
     let ents = mkSerializedLEntityDefs $ map toLEntityDef ents' in
     let def = ValD (VarP lsql) (NormalB (AppE (VarE 'lsqlHelper) ents)) [] in
-    return [ sig, def]
+    let lsql' = mkName "lsql'" in
+    let sig' = SigD lsql' (ConT ''QuasiQuoter) in
+    let def' = ValD (VarP lsql') (NormalB (AppE (VarE 'lsqlHelper') ents)) [] in
+    return [ sig, def, sig', def']
 
 -- | Serialize LEntityDefs so that lsql can access them in other modules. 
 -- Ex:
@@ -841,3 +844,13 @@ parseCommand = do
                 ( asciiCI "<=" >> return BinLE) <|>
                 ( char '<' >> return BinL)
 
+-- Debugging functions.
+
+lsqlHelper' :: [LEntityDef] -> QuasiQuoter
+lsqlHelper' ents = QuasiQuoter {
+        quoteExp = (generateSql' ents) . Text.pack
+    }
+    where 
+        generateSql' e s = do
+            res <- generateSql e s
+            error $ pprint res
