@@ -711,7 +711,7 @@ parseCommand = do
                     skipSpace
                     _ <- asciiCI "ON"
                     bexpr <- parseBExpr
-                    return $ Tables acc join (Text.unpack table) bexpr
+                    parseTables' $ Tables acc join (Text.unpack table) bexpr
                   ) <|> (return acc)
             in
             do
