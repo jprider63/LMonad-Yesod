@@ -167,7 +167,7 @@ generateSql lEntityDefs s =
                 let pat = TupP $ List.map ( \rterm -> 
                         let constr = case rterm of
                               ReqField table field _ _ ->
-                                ConP 'Esq.Value [VarP $ varNameTableField table field]
+                                VarP $ varNameTableField table field
                               ReqEntity table _ ->
                                 AsP (varNameTableE table) $ ConP 'Entity [ VarP $ varNameTableField table "id", VarP $ varNameTable table]
                         in
