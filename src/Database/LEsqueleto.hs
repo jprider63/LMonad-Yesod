@@ -3,6 +3,7 @@
 module Database.LEsqueleto (mkLSql, module Export) where
 
 import Control.Applicative
+import Control.Monad
 import Data.Attoparsec.Text
 import qualified Data.Char as Char
 import qualified Data.List as List
@@ -144,6 +145,7 @@ generateSql lEntityDefs s =
     need to check if fields/tables are maybes???
     -}
     do
+    -- error $ show ast
     res <- newName "res"
     let query = 
           let tables = commandTables normalized in
@@ -316,6 +318,7 @@ generateSql lEntityDefs s =
         mkExprBExpr isTableOptional (BExprNot expr) = AppE (VarE 'Esq.not_) $ mkExprBExpr isTableOptional expr
 
         mkExprBOp BinEq = VarE '(Esq.==.)
+        mkExprBOp BinNEq = VarE '(Esq.!=.)
         mkExprBOp BinGE = VarE '(Esq.>=.)
         mkExprBOp BinG = VarE '(Esq.>.)
         mkExprBOp BinLE = VarE '(Esq.<=.)
@@ -625,7 +628,7 @@ data TermField = Field String | FieldAll
 data BExpr = BExprAnd BExpr BExpr | BExprOr BExpr BExpr | BExprBinOp B BinOp B | BExprNull Term | BExprNotNull Term | BExprNot BExpr
     deriving (Show)
 
-data BinOp = BinEq | BinGE | BinG | BinLE | BinL
+data BinOp = BinEq | BinNEq | BinGE | BinG | BinLE | BinL
     deriving (Show)
 
 data B = BTerm Term | BAnti String | BConst C
@@ -650,7 +653,7 @@ parseCommand = do
     return $ Command select terms tables whereM orderByM limitM offsetM
 
     where
-        -- takeNonSpace = takeWhile1 (not . Char.isSpace)
+        takeNonSpace = takeWhile1 (not . Char.isSpace)
 
         takeAlphaNum = takeWhile1 Char.isAlphaNum
         takeUpperAlphaNum = do
@@ -762,41 +765,45 @@ parseCommand = do
             return $ Just $ Offset limit
           ) <|> (return Nothing)
 
-        parseBExpr = ( do
-            skipSpace
-            _ <- char '('
-            res <- parseBExpr
-            skipSpace
-            _ <- char ')'
-            return res
-          ) <|> ( do
-            skipSpace
-            _ <- asciiCI "NOT"
-            res <- parseBExpr
-            return $ BExprNot res
-          ) <|> ( do
-            term <- parseTerm
-            skipSpace
-            _ <- asciiCI "IS NULL"
-            return $ BExprNull term
-          ) <|> ( do
-            term <- parseTerm
-            skipSpace
-            _ <- asciiCI "IS NOT NULL"
-            return $ BExprNotNull term
-          ) <|> ( do
-            b1 <- parseB
-            op <- parseBOp
-            b2 <- parseB
-            return $ BExprBinOp b1 op b2
-          ) <|> ( do
-            expr1 <- parseBExpr
-            skipSpace
-            constr <- (asciiCI "AND" >> (return BExprAnd)) <|>
-                (asciiCI "OR" >> (return BExprOr))
-            expr2 <- parseBExpr
-            return $ constr expr1 expr2
-          )
+        parseBExpr = do
+            expr1 <- ( do
+                skipSpace
+                _ <- char '('
+                res <- parseBExpr
+                skipSpace
+                _ <- char ')'
+                return res
+              ) <|> ( do
+                skipSpace
+                _ <- asciiCI "NOT"
+                res <- parseBExpr
+                return $ BExprNot res
+              ) <|> ( do
+                term <- parseTerm
+                skipSpace
+                _ <- asciiCI "IS NULL"
+                return $ BExprNull term
+              ) <|> ( do
+                term <- parseTerm
+                skipSpace
+                _ <- asciiCI "IS NOT NULL"
+                return $ BExprNotNull term
+              ) <|> ( do
+                b1 <- parseB
+                op <- parseBOp
+                b2 <- parseB
+                return $ BExprBinOp b1 op b2
+              )
+            ( do
+                skipSpace
+                -- temp <- takeAlphaNum
+                -- when (temp /= "where" && temp /= "and") $ 
+                --     error $ "here: " ++ (show expr1) ++ " **** " ++ (Text.unpack temp)
+                constr <- (asciiCI "AND" >> (return BExprAnd)) <|>
+                    (asciiCI "OR" >> (return BExprOr))
+                expr2 <- parseBExpr
+                return $ constr expr1 expr2
+              ) <|> (return expr1)
 
           where
             parseSQLString = takeWhile1 (/= '\'')
@@ -838,11 +845,24 @@ parseCommand = do
                 return $ BConst c
               )
 
-            parseBOp = skipSpace >> ( asciiCI "==" >> return BinEq) <|> 
-                ( asciiCI ">=" >> return BinGE) <|>
-                ( char '>' >> return BinG) <|>
-                ( asciiCI "<=" >> return BinLE) <|>
-                ( char '<' >> return BinL)
+            parseBOp = do
+                skipSpace
+                op <- takeNonSpace
+                return $ case op of
+                    "==" -> BinEq
+                    "!=" -> BinNEq
+                    ">=" -> BinGE
+                    ">" -> BinG
+                    "<=" -> BinLE
+                    "<" -> BinL
+                    t -> 
+                        error $ "Invalid binop `" ++ (Text.unpack t) ++ "`"
+                -- >> ( asciiCI "==" >> return BinEq) <|> 
+                -- ( asciiCI ">=" >> return BinGE) <|>
+                -- ( char '>' >> return BinG) <|>
+                -- ( asciiCI "<=" >> return BinLE) <|>
+                -- ( char '<' >> return BinL) <|>
+                -- ( takeAlphaNum >>= \t -> fail $ "Invalid binop `" ++ (Text.unpack t) ++ "`")
 
 -- Debugging functions.
 
