@@ -800,7 +800,12 @@ parseCommand = do
                 -- when (temp /= "where" && temp /= "and") $ 
                 --     error $ "here: " ++ (show expr1) ++ " **** " ++ (Text.unpack temp)
                 constr <- (asciiCI "AND" >> (return BExprAnd)) <|>
-                    (asciiCI "OR" >> (return BExprOr))
+                    (asciiCI "OR" >> peekChar >>= (maybe (return BExprOr) $ \c -> 
+                        if c /= ' ' then
+                            fail "OR: Some other keyword"
+                        else
+                            return BExprOr
+                      ))
                 expr2 <- parseBExpr
                 return $ constr expr1 expr2
               ) <|> (return expr1)
