@@ -801,10 +801,10 @@ parseCommand = do
                 --     error $ "here: " ++ (show expr1) ++ " **** " ++ (Text.unpack temp)
                 constr <- (asciiCI "AND" >> (return BExprAnd)) <|>
                     (asciiCI "OR" >> peekChar >>= (maybe (return BExprOr) $ \c -> 
-                        if c /= ' ' then
-                            fail "OR: Some other keyword"
-                        else
+                        if Char.isSpace c then
                             return BExprOr
+                        else
+                            fail "OR: Some other keyword"
                       ))
                 expr2 <- parseBExpr
                 return $ constr expr1 expr2
