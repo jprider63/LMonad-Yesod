@@ -89,8 +89,6 @@ lsqlHelper ents = QuasiQuoter {
         quoteExp = (generateSql ents) . Text.pack
     }
 
---parse :: (Label l, PersistConfig c, LMonad m, m ~ HandlerT site IO) => Text -> PersistConfigBackend c (LMonadT l m) b
---generateSql :: (Label l, m ~ HandlerT site IO, YesodLPersist site) => ReaderT (YesodPersistBackend site) (LMonadT l m) a 
 generateSql :: [LEntityDef] -> Text -> Q Exp
 generateSql lEntityDefs s = 
     -- Parse the DSL. 
@@ -123,6 +121,7 @@ generateSql lEntityDefs s =
                 ( [( table, lvl)], lvl)
           in
           let ( mapping, _) = createAssoc (commandTables normalized) (0 :: Int) in
+          -- error $ show mapping
           maybe 
             (error $ "Could not find table `" ++ tableS ++ "`") 
             (> 0) 
@@ -151,7 +150,8 @@ generateSql lEntityDefs s =
           let tables = commandTables normalized in
           let returns = AppE (VarE 'return) $ TupE $ List.map (\rterm -> case rterm of
                     ReqField table field _ _ ->
-                        mkExprTF False table field -- TODO: Does the option matter here??? XXX
+                        mkExprTF (isTableOptional table) table field -- TODO: Does the option matter here??? XXX
+                        -- mkExprTF False table field -- TODO: Does the option matter here??? XXX
                     ReqEntity ent _ -> 
                         VarE $ varNameTable ent
                 ) terms 
@@ -296,7 +296,7 @@ generateSql lEntityDefs s =
             let fieldOptional1 = isTableFieldOptional table1 field1 in
             let fieldOptional2 = isTableFieldOptional table2 field2 in
             let optional1 = tableOptional1 || fieldOptional1 in
-            let optional2 = fieldOptional1 || fieldOptional2 in
+            let optional2 = tableOptional2 || fieldOptional2 in
             let ( expr1, expr2) = case ( optional1, optional2) of
                   ( True, False) ->
                     ( expr1', AppE (VarE 'Esq.just) expr2')
@@ -306,15 +306,16 @@ generateSql lEntityDefs s =
                     ( expr1', expr2')
             in
             let op = mkExprBOp op' in
+            --error $ (show tableOptional1) ++":"++ (show tableOptional2) ++":"++ (show optional1) ++":"++ (show optional2)
             UInfixE expr1 op expr2
-        mkExprBExpr _ (BExprBinOp b1 op b2) = UInfixE
-            (mkExprB b1) (mkExprBOp op) (mkExprB b2)
+        mkExprBExpr isTableOptional (BExprBinOp b1 op b2) = UInfixE
+            (mkExprB isTableOptional b1) (mkExprBOp op) (mkExprB isTableOptional b2)
         mkExprBExpr isTableOptional (BExprAnd e1 e2) = UInfixE 
             (mkExprBExpr isTableOptional e1) (VarE '(Esq.&&.)) (mkExprBExpr isTableOptional e2)
         mkExprBExpr isTableOptional (BExprOr e1 e2) = UInfixE 
             (mkExprBExpr isTableOptional e1) (VarE '(Esq.||.)) (mkExprBExpr isTableOptional e2)
-        mkExprBExpr isTableOptional (BExprNull t) = AppE (VarE 'Esq.isNothing) $ mkExprTerm False t
-        mkExprBExpr isTableOptional (BExprNotNull t) = AppE (VarE 'Esq.not_) $ AppE (VarE 'Esq.isNothing) $ mkExprTerm False t
+        mkExprBExpr isTableOptional (BExprNull t) = AppE (VarE 'Esq.isNothing) $ mkExprTerm isTableOptional t
+        mkExprBExpr isTableOptional (BExprNotNull t) = AppE (VarE 'Esq.not_) $ AppE (VarE 'Esq.isNothing) $ mkExprTerm isTableOptional t
         mkExprBExpr isTableOptional (BExprNot expr) = AppE (VarE 'Esq.not_) $ mkExprBExpr isTableOptional expr
 
         mkExprBOp BinEq = VarE '(Esq.==.)
@@ -324,11 +325,11 @@ generateSql lEntityDefs s =
         mkExprBOp BinLE = VarE '(Esq.<=.)
         mkExprBOp BinL = VarE '(Esq.<.)
 
-        mkExprB (BTerm t) = mkExprTerm False t
-        mkExprB (BAnti s) = case Meta.parseExp s of
+        mkExprB isTableOptional (BTerm t) = mkExprTerm isTableOptional t
+        mkExprB _ (BAnti s) = case Meta.parseExp s of
             Left e -> error e
             Right e -> AppE (VarE 'Esq.val) $ e
-        mkExprB (BConst c) = mkExprConst c 
+        mkExprB _ (BConst c) = mkExprConst c 
 
         mkExprConst (CBool True) = AppE (VarE 'Esq.val) $ ConE 'True
         mkExprConst (CBool False) = AppE (VarE 'Esq.val) $ ConE 'False
@@ -342,9 +343,9 @@ generateSql lEntityDefs s =
             let var = varNameTable table in
             UInfixE (VarE var) op (ConE fieldName)
 
-        mkExprTerm optional term = 
+        mkExprTerm isTableOptional term = 
             let (tableS, fieldS) = extractTableField term in
-            mkExprTF optional tableS fieldS
+            mkExprTF (isTableOptional tableS) tableS fieldS
 
         getLTable tableS = 
             let findEntity [] = error $ "Could not find table `" ++ tableS ++ "`"
