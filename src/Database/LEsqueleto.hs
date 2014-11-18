@@ -7,7 +7,7 @@ import qualified Data.Char as Char
 import qualified Data.List as List
 import Data.Maybe (fromJust)
 import qualified Database.Esqueleto as Esq
-import Database.Esqueleto as Export (Value(..))
+import Database.Esqueleto as Export (Value(..), SqlBackend)
 import Data.Maybe (isJust)
 import Database.Persist.Types
 import Data.Text (Text)
