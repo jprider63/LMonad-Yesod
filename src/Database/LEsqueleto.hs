@@ -99,7 +99,6 @@ generateSql lEntityDefs s =
             res
     in
     let normalized = normalizeTerms ast in
-    let terms = reqTermsCommand normalized in 
     let isTableOptional tableS =
           let createAssoc (Tables ts join table _) lvl' =
                 let ( lvl, next, prev) = case join of
@@ -118,7 +117,7 @@ generateSql lEntityDefs s =
                 let ( mapping, correction) = createAssoc ts next in
                 ( ( table, lvl + correction):mapping, prev + correction)
               createAssoc (Table table) lvl = 
-                ( [( table, lvl)], lvl)
+                ( [( table, lvl)], 0)
           in
           let ( mapping, _) = createAssoc (commandTables normalized) (0 :: Int) in
           -- error $ show mapping
@@ -127,6 +126,7 @@ generateSql lEntityDefs s =
             (> 0) 
             $ List.lookup tableS mapping
     in
+    let terms = reqTermsCommand isTableOptional normalized in 
     -- TODO: Add some check that all the table and field names used match up with existing things?? XXX
     {-
     ...
@@ -152,7 +152,7 @@ generateSql lEntityDefs s =
                     ReqField table field _ _ ->
                         mkExprTF (isTableOptional table) table field -- TODO: Does the option matter here??? XXX
                         -- mkExprTF False table field -- TODO: Does the option matter here??? XXX
-                    ReqEntity ent _ -> 
+                    ReqEntity ent _ _ -> 
                         VarE $ varNameTable ent
                 ) terms 
           in
@@ -170,7 +170,8 @@ generateSql lEntityDefs s =
                         let constr = case rterm of
                               ReqField table field _ _ ->
                                 VarP $ varNameTableField table field
-                              ReqEntity table _ ->
+                              ReqEntity table optional _ ->
+                                -- TODO: implement this FIXME XXX
                                 AsP (varNameTableE table) $ ConP 'Entity [ VarP $ varNameTableField table "id", VarP $ varNameTable table]
                         in
                         constr
@@ -182,8 +183,9 @@ generateSql lEntityDefs s =
                                     ReqField table' field' _ _
                                       | table == table' && field == field' ->
                                         Just $ VarE $ varNameTableField table field
-                                    ReqEntity table' _
+                                    ReqEntity table' optional _
                                       | table == table' ->
+                                        -- TODO: implement this FIXME XXX
                                         if field == "id" then
                                             Just $ VarE $ varNameTableField table field
                                         else
@@ -208,9 +210,10 @@ generateSql lEntityDefs s =
                                           ) tainter deps
                                     in
                                     (NoBindS taint):acc
-                                ReqEntity table False ->
+                                ReqEntity table _ False ->
                                     acc
-                                ReqEntity table True ->
+                                ReqEntity table optional True ->
+                                    -- TODO: implement this FIXME XXX
                                     (NoBindS $ AppE (VarE 'raiseLabelRead) (VarE $ varNameTable table)):acc
                                 
                             ) [] terms in
@@ -220,7 +223,7 @@ generateSql lEntityDefs s =
                                         (VarE $ varNameTableField table field):acc
                                     else
                                         acc
-                                ReqEntity table _ -> 
+                                ReqEntity table _ _ -> 
                                     (VarE $ varNameTableE table):acc
                             ) [] terms in
 
@@ -390,7 +393,7 @@ generateSql lEntityDefs s =
         varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
         constrNameTableField table field = mkName $ (headToUpper table) ++ (headToUpper field)
 
-        reqTermsCommand (Command _ terms tables whereM orderByM _limitM _offsetM) = 
+        reqTermsCommand isTableOptional (Command _ terms tables whereM orderByM _limitM _offsetM) = 
             -- Get all requested terms
             --    transform to ReqTerm
             -- get the dependencies of all the other terms
@@ -399,44 +402,47 @@ generateSql lEntityDefs s =
                   Terms terms -> terms
                   TermsAll -> error "reqTermsCommand: normalization failed"
             in
-            let reqTerms = List.map (reqTermsTerm True) terms' in
-            let reqTerms' = reqTermsTables reqTerms tables in
-            let reqTerms'' = maybe reqTerms' (reqTermsWhere reqTerms') whereM in
-            maybe reqTerms'' (reqTermsOrderBy reqTerms'') orderByM
+            let reqTerms = List.map (reqTermsTerm isTableOptional True) terms' in
+            let reqTerms' = reqTermsTables isTableOptional reqTerms tables in
+            let reqTerms'' = maybe reqTerms' (reqTermsWhere isTableOptional reqTerms') whereM in
+            maybe reqTerms'' (reqTermsOrderBy isTableOptional reqTerms'') orderByM
             --let reqTerms''' = maybe reqTerms'' (reqTermsOrderBy reqTerms'') orderByM in
             --let reqTerms'''' = maybe reqTerms''' (reqTermsLimit reqTerms''') limitM in
             --maybe reqTerms'''' (reqTermsOffset reqTerms'''') offsetM
 
-        reqTermsOrderBy curTerms (OrderBy ords) = List.foldl' (\acc ord -> case ord of
+        reqTermsOrderBy isTableOptional curTerms (OrderBy ords) = List.foldl' (\acc ord -> case ord of
                 OrderAsc t ->
-                    reqTermsTermMaybe acc t
+                    reqTermsTermMaybe isTableOptional acc t
                 OrderDesc t ->
-                    reqTermsTermMaybe acc t
+                    reqTermsTermMaybe isTableOptional acc t
             ) curTerms ords
 
-        reqTermsWhere curTerms (Where bexpr) = reqTermsBExpr curTerms bexpr
+        reqTermsWhere isTableOptional curTerms (Where bexpr) = reqTermsBExpr isTableOptional curTerms bexpr
 
-        reqTermsTables curTerms (Tables ts _ _ bexpr) = 
-            reqTermsTables (reqTermsBExpr curTerms bexpr) ts
-        reqTermsTables curTerms (Table _) = curTerms
+        reqTermsTables :: (String -> Bool) -> [ReqTerm] -> Tables -> [ReqTerm]
+        reqTermsTables isTableOptional curTerms (Tables ts _ _ bexpr) = 
+            reqTermsTables isTableOptional (reqTermsBExpr isTableOptional curTerms bexpr) ts
+        reqTermsTables _ curTerms (Table _) = curTerms
 
-        reqTermsBExpr curTerms (BExprAnd e1 e2) = reqTermsBExpr (reqTermsBExpr curTerms e1) e2
-        reqTermsBExpr curTerms (BExprOr e1 e2) = reqTermsBExpr (reqTermsBExpr curTerms e1) e2
-        reqTermsBExpr curTerms (BExprBinOp b1 _ b2) = reqTermsB (reqTermsB curTerms b1) b2
-        reqTermsBExpr curTerms (BExprNull t) = reqTermsTermMaybe curTerms t
-        reqTermsBExpr curTerms (BExprNotNull t) = reqTermsTermMaybe curTerms t
-        reqTermsBExpr curTerms (BExprNot e) = reqTermsBExpr curTerms e
+        reqTermsBExpr :: (String -> Bool) -> [ReqTerm] -> BExpr -> [ReqTerm]
+        reqTermsBExpr isTableOptional curTerms (BExprAnd e1 e2) = reqTermsBExpr isTableOptional (reqTermsBExpr isTableOptional curTerms e1) e2
+        reqTermsBExpr isTableOptional curTerms (BExprOr e1 e2) = reqTermsBExpr isTableOptional (reqTermsBExpr isTableOptional curTerms e1) e2
+        reqTermsBExpr isTableOptional curTerms (BExprBinOp b1 _ b2) = reqTermsB isTableOptional (reqTermsB isTableOptional curTerms b1) b2
+        reqTermsBExpr isTableOptional curTerms (BExprNull t) = reqTermsTermMaybe isTableOptional curTerms t
+        reqTermsBExpr isTableOptional curTerms (BExprNotNull t) = reqTermsTermMaybe isTableOptional curTerms t
+        reqTermsBExpr isTableOptional curTerms (BExprNot e) = reqTermsBExpr isTableOptional curTerms e
 
-        reqTermsB curTerms (BTerm t) = reqTermsTermMaybe curTerms t
-        reqTermsB curTerms _ = curTerms
+        reqTermsB :: (String -> Bool) -> [ReqTerm] -> B -> [ReqTerm]
+        reqTermsB isTableOptional curTerms (BTerm t) = reqTermsTermMaybe isTableOptional curTerms t
+        reqTermsB _ curTerms _ = curTerms
 
         -- Union in new term. Term should never be an entity.
-        reqTermsTermMaybe :: [ReqTerm] -> Term -> [ReqTerm]
-        reqTermsTermMaybe curTerms term = 
+        reqTermsTermMaybe :: (String -> Bool) -> [ReqTerm] -> Term -> [ReqTerm]
+        reqTermsTermMaybe isTableOptional curTerms term = 
             let ( tableS, fieldS) = extractTableField term in
-            let reqTerm = reqTermsTerm False term in
+            let reqTerm = reqTermsTerm isTableOptional False term in
             let cons = List.foldl' (\acc term -> case term of
-                    ReqEntity tableS' _ ->
+                    ReqEntity tableS' _ _ ->
                         if tableS == tableS' then
                             False
                         else
@@ -453,7 +459,7 @@ generateSql lEntityDefs s =
             else
                 curTerms
 
-        reqTermsTerm returning (TermTF tableS field) = case field of
+        reqTermsTerm isTableOptional returning (TermTF tableS field) = case field of
             Field fieldS ->
                 let fieldDef = getLTableField tableS fieldS in
                 let dep = maybe Nothing (\( anns, _, _) -> Just $ List.foldl' (\acc ann -> case ann of
@@ -470,8 +476,9 @@ generateSql lEntityDefs s =
                       let ent = getLTable tableS in
                       List.foldl' (\acc f -> acc || isJust (lFieldLabelAnnotations f)) False $ lEntityFields ent
                 in
-                ReqEntity tableS hasDeps
-        reqTermsTerm _ (TermF _) = error "reqTermsTerm: normalization failed"
+                let optional = isTableOptional tableS in
+                ReqEntity tableS optional hasDeps
+        reqTermsTerm _ _ (TermF _) = error "reqTermsTerm: normalization failed"
 
         -- selectE = VarE $ mkName "select"
         -- fromE = VarE $ mkName "from"
@@ -502,7 +509,8 @@ data ReqTerm =
     }
   | ReqEntity {
         reqEntityTable :: String -- Implied returning is true
-      , hasLabels :: Bool
+      , reqEntityIsOptional :: Bool
+      , reqEntityHasLabels :: Bool
     }
 
 -- | Normalize an AST by adding table name for all terms. Also expands out all the tables requested when TermsAll is applied. 
