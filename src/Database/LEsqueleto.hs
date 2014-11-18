@@ -5,6 +5,7 @@ module Database.LEsqueleto (mkLSql, module Export) where
 import Data.Attoparsec.Text (parseOnly)
 import qualified Data.Char as Char
 import qualified Data.List as List
+import Data.Maybe (fromJust)
 import qualified Database.Esqueleto as Esq
 import Database.Esqueleto as Export (Value(..))
 import Data.Maybe (isJust)
@@ -173,7 +174,7 @@ generateSql lEntityDefs s =
                                 if optional then
                                     VarP $ varNameTableField table "maybe"
                                 else
-                                    AsP (varNameTableE table) $ ConP 'Entity [ VarP $ varNameTableField table "id", VarP $ varNameTable table]
+                                    mkEntityPattern table
                         in
                         constr
                       ) terms 
@@ -187,11 +188,19 @@ generateSql lEntityDefs s =
                                     ReqEntity table' optional _
                                       | table == table' ->
                                         -- TODO: implement this FIXME XXX
-                                        if field == "id" then
-                                            Just $ VarE $ varNameTableField table field
+                                        let expr = 
+                                              if field == "id" then
+                                                VarE $ varNameTableField table field
+                                              else
+                                                let getter = mkName $ (headToLower table) ++ (headToUpper field) in
+                                                AppE (VarE getter) $ VarE $ varNameTable table
+                                        in
+                                        Just $ if optional then
+                                            -- Here we assert that the field is not Nothing, since we know that is optional. Warning: If this assertion is wrong, things could fail at runtime. 
+                                            let body = AppE (VarE 'fromJust) (VarE $ varNameTableField table' "maybe") in
+                                            LetE [ValD (mkEntityPattern table') (NormalB body) []] expr
                                         else
-                                            let getter = mkName $ (headToLower table) ++ (headToUpper field) in
-                                            Just $ AppE (VarE getter) $ VarE $ varNameTable table
+                                            expr
                                     _ ->
                                         acc
                                     
@@ -243,6 +252,9 @@ generateSql lEntityDefs s =
     return $ DoE [ query, taint]
 
     where
+        mkEntityPattern table = 
+            AsP (varNameTableE table) $ ConP 'Entity [ VarP $ varNameTableField table "id", VarP $ varNameTable table]
+
         mkQueryPatternTables (Table table) = VarP $ varNameTable table
         mkQueryPatternTables (Tables ts j table _) = 
             let constr = case j of
@@ -508,7 +520,7 @@ data ReqTerm =
     ReqField {
         reqFieldTable :: String
       , reqFieldField :: String
---      , reqFieldIsMaybe :: Bool
+--      , reqFieldIsOptional :: Bool
       , reqFieldReturning :: Bool
       , reqFieldDependencies :: Maybe [(String,String)] -- Contains ( table, field) dependencies.
 --      , reqFieldIsDependency :: Bool
