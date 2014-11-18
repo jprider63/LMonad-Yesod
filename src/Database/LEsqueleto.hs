@@ -768,7 +768,7 @@ parseCommand = do
                         skipSpace
                         _ <- asciiCI ","
                         parseOrders
-                      )
+                      ) <|> (return [])
                     return $ (order term):tail
 
         parseLimit = ( do
