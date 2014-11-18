@@ -651,6 +651,7 @@ parseCommand = do
     orderByM <- parseOrderBy
     limitM <- parseLimit
     offsetM <- parseOffset
+    parseComma
     return $ Command select terms tables whereM orderByM limitM offsetM
 
     where
@@ -660,6 +661,26 @@ parseCommand = do
         takeUpperAlphaNum = do
             an <- takeAlphaNum
             return $ Text.map Char.toUpper an
+
+        parseComma = do
+            skipSpace
+            -- Check for optional comma.
+            commaM <- peekChar
+            case commaM of
+                Nothing ->
+                    return ()
+                Just c ->
+                    if c == ';' then
+                        return ()
+                    else do
+                        rest <- takeText
+                        error $ "Error parsing from: `" ++ (Text.unpack rest) ++ "`"
+            -- maybe (return ()) 
+            -- try (char ';' >> skipSpace)
+            -- end <- atEnd
+            -- unless end $ do
+            --     rest <- takeText
+            --     error $ "Error parsing from: `"++ (Text.unpack rest) ++"`"
 
         parseSelect = do
             skipSpace
