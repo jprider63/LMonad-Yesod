@@ -238,8 +238,13 @@ generateSql lEntityDefs s =
                                         (VarE $ varNameTableField table field):acc
                                     else
                                         acc
-                                ReqEntity table _ _ -> 
-                                    (VarE $ varNameTableE table):acc
+                                ReqEntity table optional _ -> 
+                                    let name = if optional then
+                                            varNameTableField table "maybe"
+                                          else
+                                            varNameTableE table
+                                    in
+                                    (VarE name):acc
                             ) [] terms in
 
                       DoE $ taints ++ [returns]
