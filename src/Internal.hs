@@ -54,8 +54,44 @@ toLEntityDef :: EntityDef -> LEntityDef
 toLEntityDef ent = LEntityDef {
         lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
 --      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
-      , lEntityFields = map toLFieldDef (entityFields ent)
+      , lEntityFields = checkLabels $ map toLFieldDef (entityFields ent)
     }
+
+    where
+        lookupField fields name = 
+            let fieldM = List.foldl' (\acc field' -> case acc of
+                    Just _ -> 
+                        acc
+                    Nothing -> 
+                        if (lFieldHaskell field') == name then
+                            Just field'
+                        else
+                            Nothing
+                  ) Nothing fields
+            in
+            maybe (error $ "Could not find field `" ++ name ++ "`") id fieldM
+        checkLabels fields = List.foldr (\field' acc -> 
+                if labelsContainsOption fields field' then
+                    error $ "Field `" ++ (lFieldHaskell field') ++ "` cannot have a `Field` label annotation that points to an optional column."
+                else
+                    field':acc
+            ) [] fields
+        labelsContainsOption fields field = maybe False (\(r,w,c) -> 
+            (labelsContainsOption' fields r) 
+                || (labelsContainsOption' fields w) 
+                || (labelsContainsOption' fields c)
+          ) (lFieldLabelAnnotations field)
+        labelsContainsOption' _ [] = False
+        labelsContainsOption' fields ((LAField name):t) = 
+            let field = lookupField fields name in
+            -- Check if it's optional. 
+            case lFieldType field of
+                FTApp (FTTypeCon _ "Maybe") _ ->
+                    True
+                _ ->
+                    labelsContainsOption' fields t
+        labelsContainsOption' fields (_:t) = labelsContainsOption' fields t
+
 
 toLFieldDef :: FieldDef -> LFieldDef
 toLFieldDef f = LFieldDef {
