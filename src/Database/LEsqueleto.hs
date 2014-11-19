@@ -244,7 +244,8 @@ generateSql lEntityDefs s =
                                     let stmt = if protected then
                                             let vName = varNameTableP table in
                                             BindS (VarP vName) $ if optional then
-                                                optionCase (ConE 'Nothing) $ VarE 'toProtected
+                                                let tName = mkName "_tmp" in
+                                                optionCase (ConE 'Nothing) $ LamE [VarP tName] $ UInfixE (AppE (VarE 'toProtected) (VarE tName)) (VarE '(>>=)) $ UInfixE (VarE 'return) (VarE '(.)) (ConE 'Just)
                                               else
                                                 nonoptionCase $ VarE 'toProtected
                                           else
