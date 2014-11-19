@@ -28,6 +28,7 @@ data LEntityDef = LEntityDef
 --     , lEntityExtra   :: !(Map Text [ExtraLine])
 --     , lEntitySum     :: !Bool
     }
+    deriving (Show, Eq, Read, Ord)
 
 data LFieldDef = LFieldDef
     { lFieldHaskell   :: !String -- ^ name of the field
@@ -73,7 +74,12 @@ toLFieldDef f = LFieldDef {
                 if acc /= Nothing || prefix /= "chevrons=" then
                     acc
                 else
-                    Just $ parseChevrons affix
+                    let labels@(_,_,createLabels) = parseChevrons affix in
+                    -- Check that create does not have id.
+                    if createContainsId createLabels then
+                        error $ "Field `" ++ (Text.unpack $ unHaskellName $ fieldHaskell f) ++ "` cannot have label `Id` in the create annotation."
+                    else
+                        Just labels
               ) Nothing attrs
         typ = if nullable (fieldAttrs f) then
                 FTApp (FTTypeCon Nothing "Maybe") $ fieldType f
@@ -83,6 +89,9 @@ toLFieldDef f = LFieldDef {
             | "Maybe" `elem` s = True
             | "nullable" `elem` s = True
             | otherwise = False
+        createContainsId [] = False
+        createContainsId (LAId:t) = True
+        createContainsId (_:t) = createContainsId t
 
 -- Parse chevrons
 -- C = < L , L , L >
