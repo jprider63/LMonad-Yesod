@@ -2,6 +2,7 @@
 
 module Database.LEsqueleto (mkLSql, module Export) where
 
+import Control.Monad.Trans.Class (lift)
 import Data.Attoparsec.Text (parseOnly)
 import qualified Data.Char as Char
 import qualified Data.List as List
@@ -46,6 +47,9 @@ mkSerializedLEntityDefs ents' =
         mkSerializedLEntityDef ent = 
             let str = LitE $ StringL $ lEntityHaskell ent in
             let fields = mkSerializedLFieldsDef $ lEntityFields ent in
+            -- if (lEntityHaskell ent) == "User" then
+            --     error $ show ent
+            -- else
             AppE (AppE (ConE 'LEntityDef) str) fields
 
         mkSerializedText t = SigE (LitE $ StringL $ Text.unpack t) (ConT ''Text)
@@ -169,7 +173,7 @@ generateSql lEntityDefs s =
                 let pat = TupP $ List.map ( \rterm -> 
                         let constr = case rterm of
                               ReqField table field _ _ ->
-                                VarP $ varNameTableField table field
+                                ConP 'Value [VarP $ varNameTableField table field]
                               ReqEntity table optional _ ->
                                 if optional then
                                     VarP $ varNameTableField table "maybe"
@@ -214,7 +218,7 @@ generateSql lEntityDefs s =
                                 ReqField _ _ _ Nothing -> 
                                     acc
                                 ReqField table field _returning (Just deps) -> 
-                                    let tainter = VarE $ mkName $ "read" ++ (headToUpper table) ++ (headToUpper field) ++ "Label'" in
+                                    let tainter = VarE $ mkName $ "readLabel" ++ (headToUpper table) ++ (headToUpper field) ++ "'" in
                                     let taint = AppE (VarE 'taintLabel) $ List.foldl' (\acc (table',field') -> 
                                             AppE acc $ getExpr table' field'
                                           ) tainter deps
@@ -225,13 +229,13 @@ generateSql lEntityDefs s =
                                 ReqEntity table optional True ->
                                     -- TODO: implement this FIXME XXX
                                     let expr = if optional then
-                                            AppE (AppE (AppE (VarE 'maybe) (AppE (VarE 'return) (VarE '()))) (VarE 'raiseLabelRead)) (VarE $ varNameTableField table "maybe")
+                                            AppE (AppE (AppE (VarE 'maybe) (AppE (VarE 'return) (ConE '()))) (VarE 'raiseLabelRead)) (VarE $ varNameTableField table "maybe")
                                           else
-                                            AppE (VarE 'raiseLabelRead) (VarE $ varNameTable table)
+                                            AppE (VarE 'raiseLabelRead) (VarE $ varNameTableE table)
                                     in
                                     (NoBindS expr):acc
-                                
-                            ) [] terms in
+                            ) [] terms 
+                      in
                       let returns = NoBindS $ AppE (VarE 'return) $ TupE $ List.foldr (\rterm acc -> case rterm of
                                 ReqField table field ret _ -> 
                                     if ret then
@@ -245,13 +249,13 @@ generateSql lEntityDefs s =
                                             varNameTableE table
                                     in
                                     (VarE name):acc
-                            ) [] terms in
-
+                            ) [] terms
+                      in
                       DoE $ taints ++ [returns]
                 in
                 LamE [pat] body
           in
-          NoBindS $ AppE (AppE (VarE 'mapM) fun) (VarE res)
+          NoBindS $ AppE (VarE 'lift)$ AppE (AppE (VarE 'mapM) fun) (VarE res)
 
     -- error $ pprint $ DoE [ query, taint]
     return $ DoE [ query, taint]
@@ -500,6 +504,9 @@ generateSql lEntityDefs s =
                       List.foldl' (\acc f -> acc || isJust (lFieldLabelAnnotations f)) False $ lEntityFields ent
                 in
                 let optional = isTableOptional tableS in
+                -- if (lEntityHaskell $ getLTable tableS) == "User" then
+                --     error $ show $ getLTable tableS
+                -- else
                 ReqEntity tableS optional hasDeps
         reqTermsTerm _ _ (TermF _) = error "reqTermsTerm: normalization failed"
 
@@ -535,6 +542,8 @@ data ReqTerm =
       , reqEntityIsOptional :: Bool
       , reqEntityHasLabels :: Bool
     }
+
+    deriving (Show)
 
 -- | Normalize an AST by adding table name for all terms. Also expands out all the tables requested when TermsAll is applied. 
 normalizeTerms :: Command -> Command
