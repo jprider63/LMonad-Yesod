@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, OverloadedStrings #-}
 
-module Database.LPersist.Labeler (mkLabels) where
+module Database.LPersist.Labeler (mkLabels, mkLabels') where
 
 import Control.Monad
 import qualified Data.Char as Char
@@ -48,6 +48,13 @@ mkLabels labelS ents =
                         let con = ConT $ mkName $ Text.unpack conT in
                         List.foldl' (\acc typ -> AppT acc (ConT (mkName (Text.unpack typ)))) con rest
 
+
+
+-- | Helper function that prints out the code generated at compilation.
+mkLabels' :: String -> [EntityDef] -> Q [Dec]
+mkLabels' labelS ents = do
+    labels <- mkLabels labelS ents
+    fail $ show $ pprint labels
 
 
 -- | Create protected ADTs for the models in Persist's DSL. 
