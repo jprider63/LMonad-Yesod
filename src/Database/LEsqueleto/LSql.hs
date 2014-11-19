@@ -19,7 +19,7 @@ data Command = Command {
     }
     deriving (Show)
 data Select = Select | PSelect
-    deriving (Show)
+    deriving (Eq, Show)
 
 --data Terms = Term Term | Terms Terms Term | TermsAll
 data Terms = Terms [Term] | TermsAll

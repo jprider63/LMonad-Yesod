@@ -18,7 +18,7 @@ import Database.LPersist
 import qualified Language.Haskell.Meta.Parse as Meta
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
-import LMonad
+import LMonad.TCB
 
 import Database.LEsqueleto.LSql
 import Internal
@@ -130,6 +130,7 @@ generateSql lEntityDefs s =
             (> 0) 
             $ List.lookup tableS mapping
     in
+    let protected = (commandSelect normalized) == PSelect in
     let terms = reqTermsCommand isTableOptional normalized in 
     -- TODO: Add some check that all the table and field names used match up with existing things?? XXX
     {-
@@ -218,35 +219,58 @@ generateSql lEntityDefs s =
                                 ReqField _ _ _ Nothing -> 
                                     acc
                                 ReqField table field _returning (Just deps) -> 
-                                    let tainter = VarE $ mkName $ "readLabel" ++ (headToUpper table) ++ (headToUpper field) ++ "'" in
-                                    let taint = AppE (VarE 'taintLabel) $ List.foldl' (\acc (table',field') -> 
+                                    let labeler = VarE $ mkName $ "readLabel" ++ (headToUpper table) ++ (headToUpper field) ++ "'" in
+                                    let label = List.foldl' (\acc (table',field') -> 
                                             AppE acc $ getExpr table' field'
-                                          ) tainter deps
+                                          ) labeler deps
                                     in
-                                    (NoBindS taint):acc
+                                    let stmt = if protected then
+                                            let vName = varNameTableFieldP table field in
+                                            let lName = mkName "_protected_label" in
+                                            let lDec = ValD (VarP lName) (NormalB label) [] in
+                                            BindS (VarP vName) $ LetE [lDec] $ AppE (AppE (VarE 'toLabeledTCB) (VarE lName)) $ DoE [
+                                                    NoBindS $ AppE (VarE 'taintLabel) (VarE lName),
+                                                    NoBindS $ AppE (VarE 'return) (VarE $ varNameTableField table field)
+                                                ]
+                                          else
+                                            NoBindS $ AppE (VarE 'taintLabel) label
+                                    in
+                                    stmt:acc
                                 ReqEntity table _ False ->
                                     acc
                                 ReqEntity table optional True ->
-                                    -- TODO: implement this FIXME XXX
-                                    let expr = if optional then
-                                            AppE (AppE (AppE (VarE 'maybe) (AppE (VarE 'return) (ConE '()))) (VarE 'raiseLabelRead)) (VarE $ varNameTableField table "maybe")
+                                    let optionCase base handler = AppE (AppE (AppE (VarE 'maybe) (AppE (VarE 'return) base)) handler) (VarE $ varNameTableField table "maybe") in
+                                    let nonoptionCase handler = AppE handler $ VarE $ varNameTableE table in
+                                    let stmt = if protected then
+                                            let vName = varNameTableP table in
+                                            BindS (VarP vName) $ if optional then
+                                                optionCase (ConE 'Nothing) $ VarE 'toProtected
+                                              else
+                                                nonoptionCase $ VarE 'toProtected
                                           else
-                                            AppE (VarE 'raiseLabelRead) (VarE $ varNameTableE table)
+                                            NoBindS $ if optional then
+                                                optionCase (ConE '()) $ VarE 'raiseLabelRead
+                                              else
+                                                nonoptionCase $ VarE 'raiseLabelRead
                                     in
-                                    (NoBindS expr):acc
+                                    stmt:acc
                             ) [] terms 
                       in
                       let returns = NoBindS $ AppE (VarE 'return) $ TupE $ List.foldr (\rterm acc -> case rterm of
                                 ReqField table field ret _ -> 
                                     if ret then
-                                        (VarE $ varNameTableField table field):acc
+                                        let vName = (if protected then varNameTableFieldP else varNameTableField) table field in
+                                        (VarE vName):acc
                                     else
                                         acc
                                 ReqEntity table optional _ -> 
-                                    let name = if optional then
-                                            varNameTableField table "maybe"
+                                    let name = if protected then
+                                            varNameTableP table
                                           else
-                                            varNameTableE table
+                                            if optional then
+                                              varNameTableField table "maybe"
+                                            else
+                                              varNameTableE table
                                     in
                                     (VarE name):acc
                             ) [] terms
@@ -417,7 +441,9 @@ generateSql lEntityDefs s =
         toLowerString = List.map Char.toLower
         varNameTable table = mkName $ '_':(toLowerString table)
         varNameTableE table = mkName $ '_':'e':'_':(toLowerString table)
+        varNameTableP table = mkName $ '_':'p':'_':(toLowerString table)
         varNameTableField table field = mkName $ '_':((toLowerString table) ++ ('_':(toLowerString field)))
+        varNameTableFieldP table field = mkName $ '_':'p':'_':((toLowerString table) ++ ('_':(toLowerString field)))
         constrNameTableField table field = mkName $ (headToUpper table) ++ (headToUpper field)
 
         reqTermsCommand isTableOptional (Command _ terms tables whereM orderByM _limitM _offsetM) = 
