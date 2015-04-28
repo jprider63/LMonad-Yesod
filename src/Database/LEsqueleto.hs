@@ -245,7 +245,7 @@ generateSql lEntityDefs s =
                                             let vName = varNameTableP table in
                                             BindS (VarP vName) $ if optional then
                                                 let tName = mkName "_tmp" in
-                                                optionCase (ConE 'Nothing) $ LamE [VarP tName] $ UInfixE (AppE (VarE 'toProtected) (VarE tName)) (VarE '(>>=)) $ UInfixE (VarE 'return) (VarE '(.)) (ConE 'Just)
+                                                optionCase (ConE 'Nothing) $ LamE [VarP tName] $ parenInfixE (AppE (VarE 'toProtected) (VarE tName)) (VarE '(>>=)) $ parenInfixE (VarE 'return) (VarE '(.)) (ConE 'Just)
                                               else
                                                 nonoptionCase $ VarE 'toProtected
                                           else
@@ -362,12 +362,12 @@ generateSql lEntityDefs s =
             in
             let op = mkExprBOp op' in
             --error $ (show tableOptional1) ++":"++ (show tableOptional2) ++":"++ (show optional1) ++":"++ (show optional2)
-            UInfixE expr1 op expr2
-        mkExprBExpr isTableOptional (BExprBinOp b1 op b2) = UInfixE
+            parenInfixE expr1 op expr2
+        mkExprBExpr isTableOptional (BExprBinOp b1 op b2) = parenInfixE
             (mkExprB isTableOptional b1) (mkExprBOp op) (mkExprB isTableOptional b2)
-        mkExprBExpr isTableOptional (BExprAnd e1 e2) = UInfixE 
+        mkExprBExpr isTableOptional (BExprAnd e1 e2) = parenInfixE 
             (mkExprBExpr isTableOptional e1) (VarE '(Esq.&&.)) (mkExprBExpr isTableOptional e2)
-        mkExprBExpr isTableOptional (BExprOr e1 e2) = UInfixE 
+        mkExprBExpr isTableOptional (BExprOr e1 e2) = parenInfixE 
             (mkExprBExpr isTableOptional e1) (VarE '(Esq.||.)) (mkExprBExpr isTableOptional e2)
         mkExprBExpr isTableOptional (BExprNull t) = AppE (VarE 'Esq.isNothing) $ mkExprTerm isTableOptional t
         mkExprBExpr isTableOptional (BExprNotNull t) = AppE (VarE 'Esq.not_) $ AppE (VarE 'Esq.isNothing) $ mkExprTerm isTableOptional t
@@ -396,7 +396,7 @@ generateSql lEntityDefs s =
             let op = VarE $ if tableOptional then '(Esq.?.) else '(Esq.^.) in
             let fieldName = constrNameTableField table field in
             let var = varNameTable table in
-            UInfixE (VarE var) op (ConE fieldName)
+            parenInfixE (VarE var) op (ConE fieldName)
 
         mkExprTerm isTableOptional term = 
             let (tableS, fieldS) = extractTableField term in
@@ -649,6 +649,7 @@ normalizeTerms (Command select terms tables whereM orderByM limitM offsetM) =
         updateB defTable (BTerm t) = BTerm $ updateTerm defTable t
         updateB _ b = b
 
+parenInfixE e1 e2 e3 = ParensE $ UInfixE e1 e2 e3
 
 -- Debugging functions.
 
