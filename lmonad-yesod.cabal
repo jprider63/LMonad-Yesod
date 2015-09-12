@@ -81,7 +81,7 @@ library
     , lifted-base
     , lmonad
     , mtl
-    , persistent
+    , persistent <= 2.1.2
     , shakespeare
     , tagged
     , template-haskell
