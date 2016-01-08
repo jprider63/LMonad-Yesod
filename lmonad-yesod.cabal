@@ -13,13 +13,13 @@ name:                lmonad-yesod
 version:             0.1.0.0
 
 -- A short (one-line) description of the package.
--- synopsis:            
+synopsis:            LMonad for Yesod integrates LMonad's IFC with Yesod web applications.
 
 -- A longer description of the package.
--- description:         
+description:         LMonad for Yesod integrates LMonad's IFC with Yesod web applications. You can define custom security policies by modifying the database model file. 
 
 -- The license under which the package is released.
-license:             GPL
+license:             MIT
 
 -- The file containing the license text.
 license-file:        LICENSE
@@ -34,7 +34,7 @@ maintainer:          dev@jamesparker.me
 -- A copyright notice.
 -- copyright:           
 
--- category:            
+category:            Security, Web, Yesod
 
 build-type:          Simple
 
@@ -61,7 +61,7 @@ library
       src
   
   ghc-options:
-      -Wall -fno-warn-name-shadowing -O2
+      -Wall -fno-warn-name-shadowing
 
   extensions:
       FunctionalDependencies
@@ -72,7 +72,7 @@ library
   -- Other library packages from which modules are imported.
   build-depends:
       attoparsec
-    , base
+    , base < 5
     , blaze-html
     , blaze-markup
     , containers
@@ -90,3 +90,6 @@ library
     , yesod-core
     , yesod-persistent
   
+source-repository head
+  type:              git
+  location:          https://github.com/jprider63/LMonad-Yesod
