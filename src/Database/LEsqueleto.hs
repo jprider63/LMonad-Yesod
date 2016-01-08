@@ -236,7 +236,7 @@ generateSql lEntityDefs s =
                                             NoBindS $ AppE (VarE 'taintLabel) label
                                     in
                                     stmt:acc
-                                ReqEntity table _ False ->
+                                ReqEntity _table _ False ->
                                     acc
                                 ReqEntity table optional True ->
                                     let optionCase base handler = AppE (AppE (AppE (VarE 'maybe) (AppE (VarE 'return) base)) handler) (VarE $ varNameTableField table "maybe") in
@@ -303,19 +303,19 @@ generateSql lEntityDefs s =
         mkWhere _ Nothing = []
         mkWhere isTableOptional (Just (Where expr)) = [NoBindS $ AppE (VarE 'Esq.where_) $ mkExprBExpr isTableOptional expr]
 
-        hasLabelsHelper tableS f = List.foldl' (\acc ent -> 
-            if acc || (lEntityHaskell ent) /= tableS then
-                acc 
-            else 
-                List.foldl' (\acc field ->
-                    if acc || f field then
-                        acc
-                    else
-                        maybe False (\_ -> True) $ lFieldLabelAnnotations field
-                  ) False $ lEntityFields ent
-          ) False lEntityDefs
-        hasLabelsTable tableS = hasLabelsHelper tableS (\_ -> False)
-        hasLabelsTableField tableS fieldS = hasLabelsHelper tableS $ \f -> (lFieldHaskell f) /= fieldS
+        -- hasLabelsHelper tableS f = List.foldl' (\acc ent -> 
+        --     if acc || (lEntityHaskell ent) /= tableS then
+        --         acc 
+        --     else 
+        --         List.foldl' (\acc field ->
+        --             if acc || f field then
+        --                 acc
+        --             else
+        --                 maybe False (\_ -> True) $ lFieldLabelAnnotations field
+        --           ) False $ lEntityFields ent
+        --   ) False lEntityDefs
+        -- hasLabelsTable tableS = hasLabelsHelper tableS (\_ -> False)
+        -- hasLabelsTableField tableS fieldS = hasLabelsHelper tableS $ \f -> (lFieldHaskell f) /= fieldS
 
         mkOrderBy _ Nothing = []
         mkOrderBy isTableOptional (Just (OrderBy ords')) = 
@@ -336,8 +336,8 @@ generateSql lEntityDefs s =
         mkOffset Nothing = []
         mkOffset (Just (Offset offset)) = [NoBindS $ AppE (VarE 'Esq.offset) $ LitE $ IntegerL offset]
 
-        mkOnTables _ (Table table) = []
-        mkOnTables isTableOptional (Tables ts _ _ bexpr@(BExprBinOp (BTerm term1) BinEq (BTerm term2))) = 
+        mkOnTables _ (Table _table) = []
+        mkOnTables isTableOptional (Tables ts _ _ bexpr@(BExprBinOp (BTerm _term1) BinEq (BTerm _term2))) = 
             (NoBindS $ AppE (VarE 'Esq.on) $ mkExprBExpr isTableOptional bexpr):(mkOnTables isTableOptional ts)
         mkOnTables _ (Tables _ _ table _) = error $ "mkOnTables: Invalid on expression for table `" ++ table ++ "`"
 
@@ -501,7 +501,7 @@ generateSql lEntityDefs s =
                             False
                         else
                             acc
-                    ReqField tableS' fieldS' returning _ ->
+                    ReqField tableS' fieldS' _returning _ ->
                         if tableS == tableS' && fieldS == fieldS' then
                             False
                         else
@@ -519,7 +519,7 @@ generateSql lEntityDefs s =
                 let dep = maybe Nothing (\( anns, _, _) -> Just $ List.foldl' (\acc ann -> case ann of
                         LAId ->
                             ( tableS, "id"):acc
-                        LAConst s ->
+                        LAConst _s ->
                             acc
                         LAField f -> 
                             ( tableS, f):acc
@@ -557,17 +557,17 @@ generateSql lEntityDefs s =
 
 data ReqTerm = 
     ReqField {
-        reqFieldTable :: String
-      , reqFieldField :: String
---      , reqFieldIsOptional :: Bool
-      , reqFieldReturning :: Bool
-      , reqFieldDependencies :: Maybe [(String,String)] -- Contains ( table, field) dependencies.
---      , reqFieldIsDependency :: Bool
+        _reqFieldTable :: String
+      , _reqFieldField :: String
+--      , _reqFieldIsOptional :: Bool
+      , _reqFieldReturning :: Bool
+      , _reqFieldDependencies :: Maybe [(String,String)] -- Contains ( table, field) dependencies.
+--      , _reqFieldIsDependency :: Bool
     }
   | ReqEntity {
-        reqEntityTable :: String -- Implied returning is true
-      , reqEntityIsOptional :: Bool
-      , reqEntityHasLabels :: Bool
+        _reqEntityTable :: String -- Implied returning is true
+      , _reqEntityIsOptional :: Bool
+      , _reqEntityHasLabels :: Bool
     }
 
     deriving (Show)
@@ -649,6 +649,7 @@ normalizeTerms (Command select terms tables whereM orderByM limitM offsetM) =
         updateB defTable (BTerm t) = BTerm $ updateTerm defTable t
         updateB _ b = b
 
+parenInfixE :: Exp -> Exp -> Exp -> Exp
 parenInfixE e1 e2 e3 = ParensE $ UInfixE e1 e2 e3
 
 -- Debugging functions.

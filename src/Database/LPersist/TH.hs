@@ -167,12 +167,13 @@ instance Lift ReferenceDef where
     lift (ForeignRef name ft) = [|ForeignRef name ft|]
     lift (EmbedRef em) = [|EmbedRef em|]
     lift (CompositeRef cdef) = [|CompositeRef cdef|]
+    lift (SelfReference) = [|SelfReference|]
 
 instance Lift EmbedEntityDef where
     lift (EmbedEntityDef name fields) = [|EmbedEntityDef name fields|]
 
 instance Lift EmbedFieldDef where
-    lift (EmbedFieldDef name em) = [|EmbedFieldDef name em|]
+    lift (EmbedFieldDef name em cyc) = [|EmbedFieldDef name em cyc|]
 
 type EntityMap = M.Map HaskellName EmbedEntityDef
 mEmbedded :: EntityMap -> FieldType -> Maybe EmbedEntityDef

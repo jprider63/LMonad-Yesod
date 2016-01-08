@@ -26,6 +26,7 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Database.LPersist.Quasi
     ( lParse
 --     , PersistSettings (..)
@@ -49,7 +50,6 @@ import qualified Data.Text as T
 import Control.Arrow ((&&&))
 import qualified Data.Map as M
 import Data.List (foldl')
-import Data.Monoid (mappend)
 import Control.Monad (msum, mplus)
 
 data ParseState a = PSDone | PSFail String | PSSuccess a Text deriving Show
@@ -86,7 +86,7 @@ parseFieldType t0 =
                 | c == '(' -> parseEnclosed ')' id t'
                 | c == '[' -> parseEnclosed ']' FTList t'
                 | isUpper c ->
-                    let (a, b) = T.break (\x -> isSpace x || x `elem` "()[]") t
+                    let (a, b) = T.break (\x -> isSpace x || x `elem'` "()[]") t
                      in PSSuccess (getCon a) b
                 | otherwise -> PSFail $ show (c, t')
     getCon t =
@@ -181,7 +181,7 @@ tokenize t
         | T.head t' == '\\' && T.length t' > 1 =
             quotes (T.drop 2 t') (front . (T.take 1 (T.drop 1 t'):))
         | otherwise =
-            let (x, y) = T.break (`elem` "\\\"") t'
+            let (x, y) = T.break (`elem'` "\\\"") t'
              in quotes y (front . (x:))
 
     parens count t' front
@@ -196,7 +196,7 @@ tokenize t
         | T.head t' == '\\' && T.length t' > 1 =
             parens count (T.drop 2 t') (front . (T.take 1 (T.drop 1 t'):))
         | otherwise =
-            let (x, y) = T.break (`elem` "\\()") t'
+            let (x, y) = T.break (`elem'` "\\()") t'
              in parens count y (front . (x:))
 
     chevrons t' front
@@ -207,7 +207,7 @@ tokenize t
         | T.head t' == '\\' && T.length t' > 1 =
             quotes (T.drop 2 t') (front . (T.take 1 (T.drop 1 t'):))
         | otherwise =
-            let (x, y) = T.break (`elem` "\\>") t'
+            let (x, y) = T.break (`elem'` "\\>") t'
             in chevrons y (front . (x:))
 
 -- | A string of tokens is empty when it has only spaces.  There
@@ -550,3 +550,6 @@ takeDerives _ = Nothing
 --     | "Maybe"    `elem` s = Nullable ByMaybeAttr
 --     | "nullable" `elem` s = Nullable ByNullableAttr
 --     | otherwise = NotNullable
+
+elem' :: Eq a => a -> [a] -> Bool
+elem' = elem
