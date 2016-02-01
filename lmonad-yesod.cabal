@@ -61,13 +61,14 @@ library
       src
   
   ghc-options:
-      -Wall -fno-warn-name-shadowing -O2
+      -Wall -fno-warn-name-shadowing -O2 -fno-warn-orphans
 
   extensions:
       FunctionalDependencies
       GADTs
       RankNTypes
       MultiParamTypeClasses
+      FlexibleInstances
 
   -- Other library packages from which modules are imported.
   build-depends:

@@ -126,7 +126,7 @@ toLFieldDef f = LFieldDef {
             | "nullable" `elem` s = True
             | otherwise = False
         createContainsId [] = False
-        createContainsId (LAId:t) = True
+        createContainsId (LAId:_) = True
         createContainsId (_:t) = createContainsId t
 
 -- Parse chevrons
