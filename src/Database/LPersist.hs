@@ -45,6 +45,7 @@ module Database.LPersist (
     , updateGet
     , pUpdateGet
     , getJust
+    , pGetJust
     , getBy
     , pGetBy
     , deleteBy
@@ -52,8 +53,10 @@ module Database.LPersist (
     , updateWhere
     , deleteWhere
     , selectFirst
+    , pSelectFirst
     , count
     , selectList
+    , pSelectList
     , selectKeysList
     ) where
 
@@ -191,6 +194,11 @@ getJust key = get key >>= maybe err return
     where
         err = liftIO $ throwIO $ Persist.PersistForeignConstraintUnmet $ Text.pack $ Prelude.show key
 
+pGetJust :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, ProtectedEntity l v p) => (Key v) -> ReaderT backend (LMonadT l m) p
+pGetJust key = pGet key >>= maybe err return
+    where
+        err = liftIO $ throwIO $ Persist.PersistForeignConstraintUnmet $ Text.pack $ Prelude.show key
+
 -- TODO
 --
 -- belongsTo
@@ -257,6 +265,11 @@ selectFirst filts opts = do
     whenJust res $ lift . raiseLabelRead
     return res
 
+pSelectFirst :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, ProtectedEntity l v p) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe p)
+pSelectFirst filts opts = do
+    res <- Persist.selectFirst filts opts
+    lift $ maybe (return Nothing) (fmap Just . toProtected) res
+
 count :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> ReaderT backend (LMonadT l m) Int
 count filts = do
     res <- Persist.selectList filts []
@@ -271,6 +284,12 @@ selectList filts opts = do
     l <- Persist.selectList filts opts
     lift $ mapM_ raiseLabelRead l
     return l
+
+pSelectList :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, ProtectedEntity l v p) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [p]
+pSelectList filts opts = do
+    l <- Persist.selectList filts opts
+    lift $ mapM toProtected l 
+
 
 selectKeysList :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [Key v]
 selectKeysList filts opts = do
