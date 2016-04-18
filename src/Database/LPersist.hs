@@ -213,11 +213,12 @@ getBy uniq = do
 pGetBy :: (ProtectedEntity l v p, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
 pGetBy uniq = do
     res <- Persist.getBy uniq
+    lift $ mapM toProtectedWithKey res
     --maybe (return Nothing) (\(Entity key ent) -> lift . return . Just . (PEntity key) =<< toProtected ent) res
-    maybe (return Nothing) (\ent -> do
-        pEnt <- lift $ toProtected ent
-        return $ Just $ PEntity (entityKey ent) pEnt
-      ) res
+    -- maybe (return Nothing) (\ent -> do
+    --     pEnt <- lift $ toProtected ent
+    --     return $ Just $ PEntity (entityKey ent) pEnt
+    --   ) res
 
 deleteBy :: (ProtectedEntity l v p, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) ()
 deleteBy uniq = do
@@ -265,10 +266,16 @@ selectFirst filts opts = do
     whenJust res $ lift . raiseLabelRead
     return res
 
-pSelectFirst :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, ProtectedEntity l v p) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe p)
+toProtectedWithKey :: (LMonad m, ProtectedEntity l e p) => Entity e -> LMonadT l m (PEntity l e)
+toProtectedWithKey r = do
+    p <- toProtected r
+    return $ PEntity (entityKey r) p
+
+pSelectFirst :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, ProtectedEntity l v p) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
 pSelectFirst filts opts = do
     res <- Persist.selectFirst filts opts
-    lift $ maybe (return Nothing) (fmap Just . toProtected) res
+    lift $ mapM toProtectedWithKey res
+    -- lift $ maybe (return Nothing) (fmap Just . toProtected) res
 
 count :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> ReaderT backend (LMonadT l m) Int
 count filts = do
@@ -285,11 +292,10 @@ selectList filts opts = do
     lift $ mapM_ raiseLabelRead l
     return l
 
-pSelectList :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, ProtectedEntity l v p) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [p]
+pSelectList :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, ProtectedEntity l v p) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [PEntity l v]
 pSelectList filts opts = do
     l <- Persist.selectList filts opts
-    lift $ mapM toProtected l 
-
+    lift $ mapM toProtectedWithKey l 
 
 selectKeysList :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [Key v]
 selectKeysList filts opts = do
