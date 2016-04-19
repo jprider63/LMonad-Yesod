@@ -31,6 +31,7 @@ module Database.LPersist (
     , YesodLPersist (..)
     , lDefaultRunDB
     , ProtectedEntity(..)
+    , Protected
     , PEntity(..)
     , get
     , pGet
@@ -91,8 +92,8 @@ raiseLabelCreate e = taintLabel $ getLabelCreate e
 
 -- | Typeclass for protected entities.
 -- `mkLabels` automatically generates these instances.
+type family Protected e
 class Label l => ProtectedEntity l e where
-    type Protected e
     toProtected :: LMonad m => Entity e -> LMonadT l m (Protected e)
 
 -- | ADT wrapper for protected entities. Analagous to Entity.

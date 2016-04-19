@@ -32,7 +32,7 @@ mkLabels labelS ents =
     labelFs <- mapM (mkLabelEntity labelType) entsL
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
     protected <- mapM (mkProtectedEntity labelType) entsL
-    protectedInstance <- mapM (mkProtectedEntityInstance labelType) entsL
+    protectedInstance <- mconcat <$> mapM (mkProtectedEntityInstance labelType) entsL
 --    let serializedLEntityDef = mkSerializedLEntityDefs entsL
     return $ concat [concat labelFs, labelFs', lEntityInstance, protected, protectedInstance] -- , serializedLEntityDef]
 
@@ -298,13 +298,15 @@ mkLabelEntity' labelType ent =
 --          let admin = userAdmin _e
 --          return $ ProtectedUser ident password email admin
 
-mkProtectedEntityInstance :: Type -> LEntityDef -> Q Dec
+mkProtectedEntityInstance :: Type -> LEntityDef -> Q [Dec]
 mkProtectedEntityInstance labelType ent = do
     ( fStmts, fExps) <- foldM mkProtectedFieldInstance ([],[]) $ lEntityFields ent
     let recordCons = RecConE (mkName pName) fExps
     let body = DoE $ fStmts ++ [NoBindS (AppE (VarE (mkName "return")) recordCons)]
     let toProtected = FunD (mkName "toProtected") [Clause [AsP entity (ConP (mkName "Entity") [VarP eId,VarP e])] (NormalB body) []]
-    return $ InstanceD [] (AppT (AppT (AppT (ConT (mkName "ProtectedEntity")) labelType) (ConT (mkName eName))) (ConT (mkName pName))) [toProtected]
+    let inst = InstanceD [] (AppT (AppT (ConT (mkName "ProtectedEntity")) labelType) (ConT (mkName eName))) [toProtected]
+    let typInst = TySynInstD (mkName "Protected") $ TySynEqn [ConT (mkName eName)] (ConT $ mkName pName)
+    return [inst, typInst]
 
     where 
         eName = lEntityHaskell ent
