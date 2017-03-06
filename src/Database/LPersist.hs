@@ -282,7 +282,7 @@ pSelectFirst filts opts = do
 count :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> ReaderT backend (LMonadT l m) Int
 count filts = do
     res <- Persist.selectList filts []
-    lift $ foldM (\acc e -> (raiseLabelWrite e) >> (return $ acc + 1)) 0 res
+    lift $ foldM (\acc e -> (raiseLabelRead e) >> (return $ acc + 1)) 0 res
 
 -- TODO
 --  selectSource
