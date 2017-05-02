@@ -136,6 +136,54 @@ mkLEntityInstance labelType ent =
                     Just (rAcc, wAcc, cAcc) ->
                         ( appJoin rExpr rAcc, appJoin wExpr wAcc, appJoin cExpr cAcc)
 
+{-
+-- | Create LEntity instance for a given entity. Joins all field label calls
+-- Ex:
+--
+-- instance LEntity (DCLabel Principal) User where
+--     getLabelRead _e = 
+--         readLabelUserEmail _e
+--     getLabelWrite _e =
+--         writeLabelUserEmail _e
+--     getLabelCreate _e =
+--         createLabelUserEmail _e
+
+mkLEntityInstance :: Type -> LEntityDef -> Q Dec
+mkLEntityInstance labelType ent = 
+    let expr = List.foldl' mkStmts Nothing (lEntityFields ent) in
+    let (rExpr, wExpr, cExpr) = case expr of 
+          Nothing ->
+            ( bottom, bottom, bottom)
+          Just exprs ->
+            exprs
+    in
+    let funcs = [
+            FunD (mkName "getLabelRead") [Clause [VarP e] (NormalB rExpr) []],
+            FunD (mkName "getLabelWrite") [Clause [VarP e] (NormalB wExpr) []],
+            FunD (mkName "getLabelCreate") [Clause [VarP e] (NormalB cExpr) []]
+          ]
+    in
+    return $ InstanceD [] (AppT (AppT (ConT (mkName "LEntity")) labelType) (ConT (mkName eName))) funcs
+
+    where
+        eName = lEntityHaskell ent
+        e = mkName "_e"
+        bottom = VarE $ mkName "bottom"
+        appJoin = AppE . (AppE (VarE (mkName "lub")))
+        mkStmts acc field = case lFieldLabelAnnotations field of
+            Nothing -> 
+                acc
+            _ -> 
+                let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
+                let rExpr = AppE (VarE (mkName ("readLabel"++baseName))) (VarE e) in
+                let wExpr = AppE (VarE (mkName ("writeLabel"++baseName))) (VarE e) in
+                let cExpr = AppE (VarE (mkName ("createLabel"++baseName))) (VarE e) in
+                Just $ case acc of
+                    Nothing ->
+                        ( rExpr, wExpr, cExpr)
+                    Just (rAcc, wAcc, cAcc) ->
+                        ( appJoin rExpr rAcc, appJoin wExpr wAcc, appJoin cExpr cAcc)
+-}
 
 
 -- | Creates functions that get labels for each field in an entity. 
