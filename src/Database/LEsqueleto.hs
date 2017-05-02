@@ -7,6 +7,7 @@ import Data.Attoparsec.Text (parseOnly)
 import qualified Data.Char as Char
 import qualified Data.List as List
 import Data.Maybe (fromJust)
+import qualified Data.Map.Strict as Map
 import qualified Database.Esqueleto as Esq
 import Database.Esqueleto as Export (Value(..), SqlBackend)
 import Data.Maybe (isJust)
@@ -46,7 +47,7 @@ mkSerializedLEntityDefs ents' =
     where
         mkSerializedLEntityDef ent = 
             let str = LitE $ StringL $ lEntityHaskell ent in
-            let fields = mkSerializedLFieldsDef $ lEntityFields ent in
+            let fields = mkSerializedLFieldsDef $ Map.elems $ lEntityFields ent in
             -- if (lEntityHaskell ent) == "User" then
             --     error $ show ent
             -- else
@@ -84,9 +85,11 @@ mkSerializedLEntityDefs ents' =
                             AppE (ConE 'Just) $ TupE [ r, w, c]
                         ) $ lFieldLabelAnnotations field 
                   in
-                  AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns
+                  let def = AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns in
+                  TupE [name, def]
             in
-            ListE $ map helper fields'
+            -- ListE $ map helper fields'
+            AppE (VarE 'Map.fromList) $ ListE $ map helper fields'
 
 lsqlHelper :: [LEntityDef] -> QuasiQuoter
 lsqlHelper ents = QuasiQuoter {
@@ -418,14 +421,15 @@ generateSql lEntityDefs s =
                 LFieldDef fieldS typ True Nothing
             else
                 let ent = getLTable tableS in
-                let findField [] = error $ "Could not find field `" ++ fieldS ++ "` for table `" ++ tableS ++ "`"
-                    findField (h:t) = 
-                        if toLowerString (lFieldHaskell h) == toLowerString fieldS then
-                            h
-                        else
-                            findField t
-                in
-                findField $ lEntityFields ent
+                -- let findField [] = error $ "Could not find field `" ++ fieldS ++ "` for table `" ++ tableS ++ "`"
+                --     findField (h:t) = 
+                --         if toLowerString (lFieldHaskell h) == toLowerString fieldS then
+                --             h
+                --         else
+                --             findField t
+                -- in
+                -- findField $ lEntityFields ent
+                getLEntityFieldDef ent fieldS
 
         isTableFieldOptional tableS fieldS =
             case lFieldType $ getLTableField tableS fieldS of

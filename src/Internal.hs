@@ -6,6 +6,8 @@ import Control.Applicative
 import Data.Attoparsec.Text
 import qualified Data.Char as Char
 import qualified Data.List as List
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Database.Persist.Types
@@ -21,7 +23,7 @@ data LEntityDef = LEntityDef
 --     , lEntityDB      :: !String
 --     , lEntityId      :: !FieldDef
 --     , lEntityAttrs   :: ![Attr]
-    , lEntityFields  :: ![LFieldDef]
+    , lEntityFields  :: !(Map String LFieldDef)
 --     , lEntityUniques :: ![UniqueDef]
 --     , lEntityForeigns:: ![ForeignDef]
 --     , lEntityDerives :: ![Text]
@@ -54,7 +56,7 @@ toLEntityDef :: EntityDef -> LEntityDef
 toLEntityDef ent = LEntityDef {
         lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
 --      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
-      , lEntityFields = map toLFieldDef (entityFields ent)
+      , lEntityFields = Map.fromList $ map toLFieldDef (entityFields ent)
     }
 
 --     where
@@ -93,16 +95,20 @@ toLEntityDef ent = LEntityDef {
 --         labelsContainsOption' fields (_:t) = labelsContainsOption' fields t
 
 
-toLFieldDef :: FieldDef -> LFieldDef
-toLFieldDef f = LFieldDef {
-        lFieldHaskell = Text.unpack $ unHaskellName $ fieldHaskell f
+toLFieldDef :: FieldDef -> (String, LFieldDef)
+toLFieldDef f = 
+    let def = LFieldDef {
+        lFieldHaskell = fieldName
 --       , lFieldDB = Text.unpack $ unDBName $ fieldDB f
       , lFieldType = typ
       , lFieldStrict = fieldStrict f
       , lFieldLabelAnnotations = labels
     }
+    in
+    ( fieldName, def)
 
     where
+        fieldName = Text.unpack $ unHaskellName $ fieldHaskell f
         labels = 
             let attrs = fieldAttrs f in
             List.foldl' (\acc attr -> 
@@ -185,3 +191,10 @@ parseChevrons s = case parseOnly parseC s of
         
         takeAlphaNum = takeWhile1 Char.isAlphaNum
             
+getLEntityFieldDef :: LEntityDef -> String -> LFieldDef
+getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
+    Nothing ->
+        error $ "getLEntityFieldDef: Could not find field `" ++ fName ++"` in entity `"++ (lEntityHaskell ent) ++"`"
+    Just def ->
+        def
+

@@ -5,6 +5,7 @@ module Database.LPersist.Labeler (mkLabels, mkLabels') where
 import Control.Monad
 import qualified Data.Char as Char
 import qualified Data.List as List
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Database.Persist.Types
 import Language.Haskell.TH
@@ -69,7 +70,7 @@ mkLabels' labelS ents = do
 
 mkProtectedEntity :: Type -> LEntityDef -> Q Dec
 mkProtectedEntity labelType ent =
-    let pFields = map mkProtectedField (lEntityFields ent) in
+    let pFields = map mkProtectedField (Map.elems $ lEntityFields ent) in
     return $ DataD [] pName [] [RecC pName pFields] []
 
     where
@@ -155,7 +156,7 @@ mkLEntityInstance labelType ent =
 
 mkLabelEntity :: Type -> LEntityDef -> Q [Dec]
 mkLabelEntity labelType ent = 
-    let labelFs = map mkLabelField (lEntityFields ent) in
+    let labelFs = map mkLabelField (Map.elems $ lEntityFields ent) in
     return $ concat labelFs
     
     where
@@ -220,7 +221,7 @@ mkLabelEntity labelType ent =
 
 mkLabelEntity' :: Type -> LEntityDef -> [Dec]
 mkLabelEntity' labelType ent =
-    let labelFs = map mkLabelField' (lEntityFields ent) in
+    let labelFs = map mkLabelField' (Map.elems $ lEntityFields ent) in
     concat labelFs
 
     where
@@ -349,16 +350,6 @@ fieldTypeToType (FTList x) =
 
 getLEntityFieldType :: LEntityDef -> String -> Type
 getLEntityFieldType ent fName = 
-    let ftype = List.foldl' (\acc f -> case (acc, lFieldHaskell f) of 
-            (Nothing, s) | s == fName -> 
-                Just $ fieldTypeToType $ lFieldType f
-            _ ->
-                acc
-          ) Nothing $ lEntityFields ent 
-    in
-    case ftype of 
-        Nothing ->
-            error $ "getLEntityFieldType: Could not find find field `" ++ fName ++"` in entity `"++ (lEntityHaskell ent) ++"`"
-        Just f ->
-            f
+    let def = getLEntityFieldDef ent fName in
+    fieldTypeToType $ lFieldType $ def
 
