@@ -79,10 +79,10 @@ mkProtectedEntity labelType ent =
             let fName = mkName $ 'p':(eName ++ (headToUpper (lFieldHaskell field))) in
             let strict = if lFieldStrict field then IsStrict else NotStrict in
             let rawType = fieldTypeToType $ lFieldType field in
-            let typ = case lFieldLabelAnnotations field of
-                  Nothing ->
+            let typ = 
+                  if readLabelIsBottom $ lFieldLabelAnnotations field then
                     rawType
-                  Just _ ->
+                  else
                     AppT (AppT (ConT (mkName "Labeled")) labelType) rawType
             in
             (fName, strict, typ)
@@ -122,19 +122,16 @@ mkLEntityInstance labelType ent =
         e = mkName "_e"
         bottom = VarE $ mkName "bottom"
         appJoin = AppE . (AppE (VarE (mkName "lub")))
-        mkStmts acc field = case lFieldLabelAnnotations field of
-            Nothing -> 
-                acc
-            _ -> 
-                let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
-                let rExpr = AppE (VarE (mkName ("readLabel"++baseName))) (VarE e) in
-                let wExpr = AppE (VarE (mkName ("writeLabel"++baseName))) (VarE e) in
-                let cExpr = AppE (VarE (mkName ("createLabel"++baseName))) (VarE e) in
-                Just $ case acc of
-                    Nothing ->
-                        ( rExpr, wExpr, cExpr)
-                    Just (rAcc, wAcc, cAcc) ->
-                        ( appJoin rExpr rAcc, appJoin wExpr wAcc, appJoin cExpr cAcc)
+        mkStmts acc field = 
+            let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
+            let rExpr = AppE (VarE (mkName ("readLabel"++baseName))) (VarE e) in
+            let wExpr = AppE (VarE (mkName ("writeLabel"++baseName))) (VarE e) in
+            let cExpr = AppE (VarE (mkName ("createLabel"++baseName))) (VarE e) in
+            Just $ case acc of
+                Nothing ->
+                    ( rExpr, wExpr, cExpr)
+                Just (rAcc, wAcc, cAcc) ->
+                    ( appJoin rExpr rAcc, appJoin wExpr wAcc, appJoin cExpr cAcc)
 
 
 
@@ -180,26 +177,23 @@ mkLabelEntity labelType ent =
                 List.foldl' (\acc ann -> appMeet acc $ appF ann) (appF h) t
             
         mkLabelField field = 
-            case lFieldLabelAnnotations field of
-                Nothing ->
-                    []
-                Just ( readAnns, writeAnns, createAnns) ->
-                    let eId = mkName "_eId" in
-                    let e = mkName "_entity" in
-                    let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
-                    let readName = mkName $ "readLabel" ++ baseName in
-                    let writeName = mkName $ "writeLabel" ++ baseName in
-                    let createName = mkName $ "createLabel" ++ baseName in
-                    let readSig = SigD readName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
-                    let rBody = combAnnotations toConfLabel eId e readAnns in
-                    let readDef = FunD readName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB rBody) []] in
-                    let writeSig = SigD writeName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
-                    let wBody = combAnnotations toIntegLabel eId e writeAnns in
-                    let writeDef = FunD writeName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB wBody) []] in
-                    let createSig = SigD createName $ AppT (AppT ArrowT ( ConT (mkName eName))) labelType in
-                    let cBody = combAnnotations toIntegLabel eId e createAnns in
-                    let createDef = FunD createName [Clause [VarP e] (NormalB cBody) []] in
-                    [readSig,readDef,writeSig,writeDef,createSig,createDef]
+            let ( readAnns, writeAnns, createAnns) = lFieldLabelAnnotations field in
+            let eId = mkName "_eId" in
+            let e = mkName "_entity" in
+            let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
+            let readName = mkName $ "readLabel" ++ baseName in
+            let writeName = mkName $ "writeLabel" ++ baseName in
+            let createName = mkName $ "createLabel" ++ baseName in
+            let readSig = SigD readName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
+            let rBody = combAnnotations toConfLabel eId e readAnns in
+            let readDef = FunD readName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB rBody) []] in
+            let writeSig = SigD writeName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
+            let wBody = combAnnotations toIntegLabel eId e writeAnns in
+            let writeDef = FunD writeName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB wBody) []] in
+            let createSig = SigD createName $ AppT (AppT ArrowT ( ConT (mkName eName))) labelType in
+            let cBody = combAnnotations toIntegLabel eId e createAnns in
+            let createDef = FunD createName [Clause [VarP e] (NormalB cBody) []] in
+            [readSig,readDef,writeSig,writeDef,createSig,createDef]
 
 
 
@@ -265,21 +259,18 @@ mkLabelEntity' labelType ent =
                 in
                 List.foldl' (\acc ann -> appMeet acc $ appF ann) (appF h) t
         mkLabelField' field = 
-            case lFieldLabelAnnotations field of
-                Nothing ->
-                    []
-                Just ( readAnns, writeAnns, createAnns) ->
-                    let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
-                    let readName = mkName $ "readLabel" ++ baseName ++ "'" in
-                    let writeName = mkName $ "writeLabel" ++ baseName ++ "'" in
-                    let createName = mkName $ "createLabel" ++ baseName ++ "'" in
-                    let readSig = SigD readName $ mkType readAnns in
-                    let readDef = FunD readName [Clause (mkPattern readAnns) (NormalB $ mkBody toConfLabel readAnns) []] in
-                    let writeSig = SigD writeName $ mkType writeAnns in
-                    let writeDef = FunD writeName [Clause (mkPattern writeAnns) (NormalB $ mkBody toIntegLabel writeAnns) []] in
-                    let createSig = SigD createName $ mkType createAnns in
-                    let createDef = FunD createName [Clause (mkPattern createAnns) (NormalB $ mkBody toIntegLabel createAnns) []] in
-                    [readSig, readDef, writeSig, writeDef, createSig, createDef]
+            let ( readAnns, writeAnns, createAnns) = lFieldLabelAnnotations field in
+            let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
+            let readName = mkName $ "readLabel" ++ baseName ++ "'" in
+            let writeName = mkName $ "writeLabel" ++ baseName ++ "'" in
+            let createName = mkName $ "createLabel" ++ baseName ++ "'" in
+            let readSig = SigD readName $ mkType readAnns in
+            let readDef = FunD readName [Clause (mkPattern readAnns) (NormalB $ mkBody toConfLabel readAnns) []] in
+            let writeSig = SigD writeName $ mkType writeAnns in
+            let writeDef = FunD writeName [Clause (mkPattern writeAnns) (NormalB $ mkBody toIntegLabel writeAnns) []] in
+            let createSig = SigD createName $ mkType createAnns in
+            let createDef = FunD createName [Clause (mkPattern createAnns) (NormalB $ mkBody toIntegLabel createAnns) []] in
+            [readSig, readDef, writeSig, writeDef, createSig, createDef]
 
 
 
@@ -322,10 +313,10 @@ mkProtectedEntityInstance labelType ent = do
             vName <- newName "v"
             let setter = mkName $ 'p':(eName ++ (headToUpper fName))
             let newF = (setter, VarE vName)
-            newS <- case lFieldLabelAnnotations field of
-                  Nothing ->
+            newS <- 
+                  if readLabelIsBottom $ lFieldLabelAnnotations field then
                     return $ LetS [ValD (VarP vName) (NormalB (AppE (VarE getter) (VarE e))) []]
-                  Just _ -> do
+                  else do
                     lName <- newName "l"
                     let taintRead = mkName $ "readLabel" ++ eName ++ (headToUpper fName)
                     let lDec = ValD (VarP lName) (NormalB (AppE (VarE taintRead) (VarE entity))) []

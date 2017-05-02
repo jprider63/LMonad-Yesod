@@ -229,3 +229,6 @@ getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
     Just def ->
         def
 
+readLabelIsBottom ([], _, _) = True
+readLabelIsBottom _ = False
+
