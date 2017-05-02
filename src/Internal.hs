@@ -53,11 +53,42 @@ headToLower (h:t) = (Char.toLower h):t
 headToLower s = error $ "Invalid name `" ++ s ++ "`"
 
 toLEntityDef :: EntityDef -> LEntityDef
-toLEntityDef ent = LEntityDef {
+toLEntityDef ent = 
+    let def = LEntityDef {
         lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
 --      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
       , lEntityFields = Map.fromList $ map toLFieldDef (entityFields ent)
     }
+    in
+    case checkReadLabelIsBottom def of
+        Nothing ->
+            def
+        Just err ->
+            error err
+
+-- Returns an error message if a read label is not bottom.
+checkReadLabelIsBottom :: LEntityDef -> Maybe String
+checkReadLabelIsBottom def = foldr helper Nothing fields
+    where
+        fields = lEntityFields def
+
+        helper _ e@(Just _) = e
+        helper field Nothing = case lFieldLabelAnnotations field of
+            Nothing ->
+                Nothing
+            Just (readLabels, _, _) -> 
+                foldr (helper' $ lFieldHaskell field) Nothing readLabels
+
+        helper' _ _ e@(Just _) = e
+        helper' _ LAId Nothing = Nothing
+        helper' _ (LAConst _) Nothing = Nothing
+        helper' origName (LAField name) Nothing = case Map.lookup name fields of
+            Nothing -> 
+                error "checkReadLabelIsBottom: unreachable"
+            Just field -> case lFieldLabelAnnotations field of
+                Nothing -> Nothing
+                Just ([],_,_) -> Nothing
+                Just _ -> Just $ "The read label of `" ++ lEntityHaskell def ++ "." ++ name ++ "` must be bottom (_) since it is part of `" ++ origName ++ "`'s read label."
 
 --     where
 --         lookupField fields name = 

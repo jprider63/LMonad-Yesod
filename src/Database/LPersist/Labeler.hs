@@ -26,10 +26,9 @@ import Internal
 --       deriving Typeable
 
 mkLabels :: String -> [EntityDef] -> Q [Dec]
-mkLabels labelS ents = 
-    let entsL = map toLEntityDef ents in
-    let labelFs' = concat $ map (mkLabelEntity' labelType) entsL in
-    do
+mkLabels labelS ents = do
+    let entsL = map toLEntityDef ents
+    let labelFs' = concat $ map (mkLabelEntity' labelType) entsL
     labelFs <- mapM (mkLabelEntity labelType) entsL
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
     protected <- mapM (mkProtectedEntity labelType) entsL
