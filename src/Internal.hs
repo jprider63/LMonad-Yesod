@@ -40,7 +40,7 @@ data LFieldDef = LFieldDef
 --    , lFieldAttrs     :: ![Attr]    -- ^ user annotations for a field
     , lFieldStrict    :: !Bool      -- ^ a strict field in the data type. Default: true
 --    , lFieldReference :: !ReferenceDef
-    , lFieldLabelAnnotations :: !(Maybe ([LabelAnnotation],[LabelAnnotation],[LabelAnnotation]))
+    , lFieldLabelAnnotations :: !([LabelAnnotation],[LabelAnnotation],[LabelAnnotation])
     }
     deriving (Show, Eq, Read, Ord)
 
@@ -73,11 +73,9 @@ checkReadLabelIsBottom def = foldr helper Nothing fields
         fields = lEntityFields def
 
         helper _ e@(Just _) = e
-        helper field Nothing = case lFieldLabelAnnotations field of
-            Nothing ->
-                Nothing
-            Just (readLabels, _, _) -> 
-                foldr (helper' $ lFieldHaskell field) Nothing readLabels
+        helper field Nothing = 
+            let (readLabels, _, _) = lFieldLabelAnnotations field in
+            foldr (helper' $ lFieldHaskell field) Nothing readLabels
 
         helper' _ _ e@(Just _) = e
         helper' _ LAId Nothing = Nothing
@@ -86,9 +84,8 @@ checkReadLabelIsBottom def = foldr helper Nothing fields
             Nothing -> 
                 error "checkReadLabelIsBottom: unreachable"
             Just field -> case lFieldLabelAnnotations field of
-                Nothing -> Nothing
-                Just ([],_,_) -> Nothing
-                Just _ -> Just $ "The read label of `" ++ lEntityHaskell def ++ "." ++ name ++ "` must be bottom (_) since it is part of `" ++ origName ++ "`'s read label."
+                ([],_,_) -> Nothing
+                _ -> Just $ "The read label of `" ++ lEntityHaskell def ++ "." ++ name ++ "` must be bottom (_) since it is part of `" ++ origName ++ "`'s read label."
 
 --     where
 --         lookupField fields name = 
@@ -140,7 +137,10 @@ toLFieldDef f =
 
     where
         fieldName = Text.unpack $ unHaskellName $ fieldHaskell f
-        labels = 
+        labels = case labels' of
+            Nothing -> ([],[],[])
+            Just (read, write, create) -> (List.sort read, List.sort write, List.sort create)
+        labels' = 
             let attrs = fieldAttrs f in
             List.foldl' (\acc attr -> 
                 let ( prefix, affix) = Text.splitAt 9 attr in
@@ -228,4 +228,7 @@ getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
         error $ "getLEntityFieldDef: Could not find field `" ++ fName ++"` in entity `"++ (lEntityHaskell ent) ++"`"
     Just def ->
         def
+
+readLabelIsBottom ([], _, _) = True
+readLabelIsBottom _ = False
 

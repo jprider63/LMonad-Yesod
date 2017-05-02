@@ -78,12 +78,12 @@ mkSerializedLEntityDefs ents' =
                   let name = LitE $ StringL $ lFieldHaskell field in
                   let typ = mkSerializedFieldType $ lFieldType field in
                   let strict = ConE $ if lFieldStrict field then 'True else 'False in
-                  let anns = maybe (ConE 'Nothing) (\( r', w', c') -> 
-                            let r = ListE $ map mkSerializedLabelAnnotation r' in
-                            let w = ListE $ map mkSerializedLabelAnnotation w' in
-                            let c = ListE $ map mkSerializedLabelAnnotation c' in
-                            AppE (ConE 'Just) $ TupE [ r, w, c]
-                        ) $ lFieldLabelAnnotations field 
+                  let anns = 
+                        let ( r', w', c') = lFieldLabelAnnotations field in
+                        let r = ListE $ map mkSerializedLabelAnnotation r' in
+                        let w = ListE $ map mkSerializedLabelAnnotation w' in
+                        let c = ListE $ map mkSerializedLabelAnnotation c' in
+                        TupE [ r, w, c]
                   in
                   let def = AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns in
                   TupE [name, def]
@@ -418,7 +418,7 @@ generateSql lEntityDefs s =
         getLTableField tableS fieldS = 
             if fieldS == "id" then
                 let typ = FTTypeCon Nothing (Text.pack $ tableS ++ "Id") in
-                LFieldDef fieldS typ True Nothing
+                LFieldDef fieldS typ True ([],[],[])
             else
                 let ent = getLTable tableS in
                 -- let findField [] = error $ "Could not find field `" ++ fieldS ++ "` for table `" ++ tableS ++ "`"
@@ -520,19 +520,24 @@ generateSql lEntityDefs s =
         reqTermsTerm isTableOptional returning (TermTF tableS field) = case field of
             Field fieldS ->
                 let fieldDef = getLTableField tableS fieldS in
-                let dep = maybe Nothing (\( anns, _, _) -> Just $ List.foldl' (\acc ann -> case ann of
-                        LAId ->
-                            ( tableS, "id"):acc
-                        LAConst _s ->
-                            acc
-                        LAField f -> 
-                            ( tableS, f):acc
-                      ) [] anns ) $ lFieldLabelAnnotations fieldDef in
+                let dep = if readLabelIsBottom $ lFieldLabelAnnotations fieldDef then
+                        Nothing
+                      else
+                        let ( anns, _, _) = lFieldLabelAnnotations fieldDef in
+                        Just $ List.foldl' (\acc ann -> case ann of
+                            LAId ->
+                                ( tableS, "id"):acc
+                            LAConst _s ->
+                                acc
+                            LAField f -> 
+                                ( tableS, f):acc
+                          ) [] anns
+                in
                 ReqField tableS fieldS returning dep
             FieldAll ->
                 let hasDeps = 
                       let ent = getLTable tableS in
-                      List.foldl' (\acc f -> acc || isJust (lFieldLabelAnnotations f)) False $ lEntityFields ent
+                      List.foldl' (\acc f -> acc || (not $ readLabelIsBottom $ lFieldLabelAnnotations f)) False $ lEntityFields ent
                 in
                 let optional = isTableOptional tableS in
                 -- if (lEntityHaskell $ getLTable tableS) == "User" then
@@ -565,6 +570,7 @@ data ReqTerm =
       , _reqFieldField :: String
 --      , _reqFieldIsOptional :: Bool
       , _reqFieldReturning :: Bool
+      -- JP: Drop this optional? XXX
       , _reqFieldDependencies :: Maybe [(String,String)] -- Contains ( table, field) dependencies.
 --      , _reqFieldIsDependency :: Bool
     }
