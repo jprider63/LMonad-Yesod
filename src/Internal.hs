@@ -11,6 +11,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Database.Persist.Types
+import Language.Haskell.TH (Name, mkName)
 
 data LabelAnnotation = 
     LAId
@@ -31,6 +32,8 @@ data LEntityDef = LEntityDef
 --     , lEntitySum     :: !Bool
     }
     deriving (Show, Eq, Read, Ord)
+
+type UniqueLabels = ([[LabelAnnotation]], [[LabelAnnotation]], [[LabelAnnotation]])
 
 data LFieldDef = LFieldDef
     { lFieldHaskell   :: !String -- ^ name of the field
@@ -232,3 +235,27 @@ getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
 readLabelIsBottom ([], _, _) = True
 readLabelIsBottom _ = False
 
+lEntityFieldsList :: LEntityDef -> [LFieldDef]
+lEntityFieldsList = Map.elems . lEntityFields
+
+lEntityUniqueLabels :: LEntityDef -> UniqueLabels
+lEntityUniqueLabels ent =
+    let (r, w, c) = unzip3 $ fmap lFieldLabelAnnotations $ lEntityFieldsList ent in
+    (List.nub r, List.nub w, List.nub c)
+
+lNameHelper' :: String -> [LabelAnnotation] -> Name
+lNameHelper' prefix [] = mkName $ prefix ++ "Bottom"
+lNameHelper' prefix anns = mkName $ prefix ++ List.intercalate "GLB" (map toName anns)
+    where
+        toName LAId = "Id"
+        toName (LAConst c) = c
+        toName (LAField f) = f
+
+lFieldReadLabelName' :: String -> [LabelAnnotation] -> Name
+lFieldReadLabelName' eName = lNameHelper' $ "readLabel" ++ eName
+
+lFieldWriteLabelName' :: String -> [LabelAnnotation] -> Name
+lFieldWriteLabelName' eName = lNameHelper' $ "writeLabel" ++ eName
+
+lFieldCreateLabelName' :: String -> [LabelAnnotation] -> Name
+lFieldCreateLabelName' eName = lNameHelper' $ "createLabel" ++ eName
