@@ -243,19 +243,32 @@ lEntityUniqueLabels ent =
     let (r, w, c) = unzip3 $ fmap lFieldLabelAnnotations $ lEntityFieldsList ent in
     (List.nub r, List.nub w, List.nub c)
 
-lNameHelper' :: String -> [LabelAnnotation] -> Name
-lNameHelper' prefix [] = mkName $ prefix ++ "Bottom"
-lNameHelper' prefix anns = mkName $ prefix ++ List.intercalate "GLB" (map toName anns)
+lNameHelper' :: String -> [LabelAnnotation] -> String
+lNameHelper' prefix [] = prefix ++ "Bottom"
+lNameHelper' prefix anns = prefix ++ List.intercalate "GLB" (map toName anns)
     where
         toName LAId = "Id"
         toName (LAConst c) = c
         toName (LAField f) = f
 
 lFieldReadLabelName' :: String -> [LabelAnnotation] -> Name
-lFieldReadLabelName' eName = lNameHelper' $ "readLabel" ++ eName
+lFieldReadLabelName' eName anns = mkName $ ( lNameHelper' ( "readLabel" ++ eName) anns) ++ "'"
 
 lFieldWriteLabelName' :: String -> [LabelAnnotation] -> Name
-lFieldWriteLabelName' eName = lNameHelper' $ "writeLabel" ++ eName
+lFieldWriteLabelName' eName anns = mkName $ ( lNameHelper' ( "writeLabel" ++ eName) anns) ++ "'"
 
 lFieldCreateLabelName' :: String -> [LabelAnnotation] -> Name
-lFieldCreateLabelName' eName = lNameHelper' $ "createLabel" ++ eName
+lFieldCreateLabelName' eName anns = mkName $ ( lNameHelper' ( "createLabel" ++ eName) anns) ++ "'"
+
+lFieldReadLabelVarName' :: String -> [LabelAnnotation] -> Name
+lFieldReadLabelVarName' eName anns = mkName $ lNameHelper' ( "_readLabel" ++ eName) anns
+
+lFieldReadLabelName :: String -> [LabelAnnotation] -> Name
+lFieldReadLabelName eName = mkName . lNameHelper' ( "readLabel" ++ eName)
+
+lFieldWriteLabelName :: String -> [LabelAnnotation] -> Name
+lFieldWriteLabelName eName = mkName . lNameHelper' ( "writeLabel" ++ eName)
+
+lFieldCreateLabelName :: String -> [LabelAnnotation] -> Name
+lFieldCreateLabelName eName = mkName . lNameHelper' ( "createLabel" ++ eName)
+

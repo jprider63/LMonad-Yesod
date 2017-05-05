@@ -29,12 +29,12 @@ mkLabels :: String -> [EntityDef] -> Q [Dec]
 mkLabels labelS ents = do
     let entsL = map (\x -> let e = toLEntityDef x in (e, lEntityUniqueLabels e)) ents
     let labelFs' = concat $ map (mkLabelEntity' labelType) entsL
-    -- labelFs <- mapM (mkLabelEntity labelType . fst) entsL
+    let labelFs = concat $ map (mkLabelEntity labelType) entsL
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
     protected <- mapM (mkProtectedEntity labelType . fst) entsL
-    protectedInstance <- mconcat <$> mapM (mkProtectedEntityInstance labelType . fst) entsL
+    protectedInstance <- mconcat <$> mapM (mkProtectedEntityInstance labelType) entsL
 --    let serializedLEntityDef = mkSerializedLEntityDefs entsL
-    return $ concat [ labelFs', lEntityInstance, protected, protectedInstance] -- , serializedLEntityDef, concat labelFs,
+    return $ concat [ labelFs', labelFs, lEntityInstance, protected, protectedInstance] -- , serializedLEntityDef, concat labelFs,
 
     where
         labelType = 
@@ -103,11 +103,11 @@ mkProtectedEntity labelType ent =
 mkLEntityInstance :: Type -> (LEntityDef, UniqueLabels) -> Q Dec
 mkLEntityInstance labelType (ent, (readLabels, writeLabels, createLabels)) = 
 
-    let rExpr = ListE $ map (mkExpr lFieldReadLabelName') readLabels in
-    let wExpr = ListE $ map (mkExpr lFieldWriteLabelName') writeLabels in
-    let cExpr = ListE $ map (mkExpr lFieldCreateLabelName') createLabels in
+    let rExpr = ListE $ map (mkExpr lFieldReadLabelName) readLabels in
+    let wExpr = ListE $ map (mkExpr lFieldWriteLabelName) writeLabels in
+    let cExpr = ListE $ map (mkExpr lFieldCreateLabelName) createLabels in
 
-    let pat = ConP 'Entity [VarP eId, VarP e] in
+    let pat = VarP e in
     let funcs = [
             FunD (mkName "getReadLabels") [Clause [pat] (NormalB rExpr) []],
             FunD (mkName "getWriteLabels") [Clause [pat] (NormalB wExpr) []],
@@ -118,20 +118,23 @@ mkLEntityInstance labelType (ent, (readLabels, writeLabels, createLabels)) =
 
     where
         eName = lEntityHaskell ent
-        eId = mkName "_eId"
         e = mkName "_entity"
 
         mkExpr nameF anns = 
             let fName = nameF eName anns in
-            List.foldl' (\acc ann -> case ann of
-                LAId -> 
-                    AppE acc (VarE eId)
-                LAConst _ ->
-                    acc
-                LAField f ->
-                    let name = mkName $ headToLower eName ++ headToUpper f in
-                    AppE acc (AppE (VarE name) (VarE e))
-              ) (VarE fName) anns
+            AppE (VarE fName) (VarE e)
+
+        -- mkExpr nameF anns = 
+        --     let fName = nameF eName anns in
+        --     List.foldl' (\acc ann -> case ann of
+        --         LAId -> 
+        --             AppE acc (VarE eId)
+        --         LAConst _ ->
+        --             acc
+        --         LAField f ->
+        --             let name = mkName $ headToLower eName ++ headToUpper f in
+        --             AppE acc (AppE (VarE name) (VarE e))
+        --       ) (VarE fName) anns
 
 {-
 -- | Create LEntity instance for a given entity. Joins all field label calls
@@ -182,68 +185,51 @@ mkLEntityInstance labelType ent =
                         ( appJoin rExpr rAcc, appJoin wExpr wAcc, appJoin cExpr cAcc)
 -}
 
-{-
 -- | Creates functions that get labels for each field in an entity. 
 -- Ex:
 --
 -- readLabelUserAdminGLBId :: Entity User -> DCLabel Principal
 -- readLabelUserAdminGLBId (Entity _eId _entity) =
---     ((toConfidentialityLabel "Admin") `glb` (toConfidentialityLabel _eId))
+--     readLabelUserAdminGLBId' _eId
 --
 -- createLabelUserId :: Entity User -> DCLabel Principal
 -- createLabelUserId (Entity _eId _entity) = 
---     toIntegrityLabel _eId
+--     createLabelUserId' _eId
 --
 -- writeLabelUserBottom :: Entity User -> DCLabel Principal
 -- writeLabelUserBottom (Entity _eId _entity) = 
---     bottom
+--     writeLabelUserBottom'
 
-mkLabelEntity :: Type -> LEntityDef -> Q [Dec]
-mkLabelEntity labelType ent = 
-    let labelFs = map mkLabelField (Map.elems $ lEntityFields ent) in
-    return $ concat labelFs
+mkLabelEntity :: Type -> (LEntityDef, UniqueLabels) -> [Dec]
+mkLabelEntity labelType (ent, (readLabels, writeLabels, createLabels)) = 
+    let readD = map (mkLabelField lFieldReadLabelName lFieldReadLabelName') readLabels in
+    let writeD = map (mkLabelField lFieldWriteLabelName lFieldWriteLabelName') writeLabels in
+    let createD = map (mkLabelField lFieldCreateLabelName lFieldCreateLabelName') createLabels in
+    concat $ readD ++ writeD ++ createD
     
     where
         eName = lEntityHaskell ent
-        toConfLabel = VarE $ mkName "toConfidentialityLabel"
-        toIntegLabel = VarE $ mkName "toIntegrityLabel"
-        bottom = VarE $ mkName "bottom"
-        appMeet = AppE . (AppE (VarE (mkName "glb")))
-        combAnnotations f eId e l = case l of
-            [] ->
-                bottom
-            h:t -> 
-                let appF ann = case ann of
-                      LAId ->
-                        AppE f $ VarE eId
-                      LAConst c ->
-                        AppE f $ SigE (LitE $ StringL c) $ ConT $ mkName "String"
-                      LAField fName ->
-                        let getter = VarE $ mkName $ (headToLower eName) ++ (headToUpper fName) in
-                        AppE f $ AppE getter $ VarE e
-                in
-                List.foldl' (\acc ann -> appMeet acc $ appF ann) (appF h) t
-            
-        mkLabelField field = 
-            let ( readAnns, writeAnns, createAnns) = lFieldLabelAnnotations field in
-            let eId = mkName "_eId" in
-            let e = mkName "_entity" in
-            let baseName = eName ++ (headToUpper (lFieldHaskell field)) in
-            let readName = mkName $ "readLabel" ++ baseName in
-            let writeName = mkName $ "writeLabel" ++ baseName in
-            let createName = mkName $ "createLabel" ++ baseName in
-            let readSig = SigD readName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
-            let rBody = combAnnotations toConfLabel eId e readAnns in
-            let readDef = FunD readName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB rBody) []] in
-            let writeSig = SigD writeName $ AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType in
-            let wBody = combAnnotations toIntegLabel eId e writeAnns in
-            let writeDef = FunD writeName [Clause [ConP (mkName "Entity") [VarP eId, VarP e]] (NormalB wBody) []] in
-            let createSig = SigD createName $ AppT (AppT ArrowT ( ConT (mkName eName))) labelType in
-            let cBody = combAnnotations toIntegLabel eId e createAnns in
-            let createDef = FunD createName [Clause [VarP e] (NormalB cBody) []] in
-            [readSig,readDef,writeSig,writeDef,createSig,createDef]
--}
+        eId = mkName "_eId"
+        e = mkName "_entity"
+        typ = AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType
 
+        mkBody fName' anns = 
+            let helper annotation acc = case annotation of
+                  LAConst _ ->
+                    acc
+                  LAId ->
+                    AppE acc (VarE eId)
+                  LAField s ->
+                    let f = mkName $ headToLower eName ++ headToUpper s in
+                    AppE acc (AppE (VarE f) (VarE e))
+            in
+            foldr helper (VarE $ fName' eName anns) anns
+
+        mkLabelField fName fName' anns = 
+            let name = fName eName anns in
+            let sig = SigD name typ in
+            let def = FunD name [Clause [ConP 'Entity [VarP eId, VarP e]] (NormalB $ mkBody fName' anns) []] in
+            [sig, def]
 
 -- | Similar to mkLabelEntity, except this function creates code that returns the labels given what the label depends on instead of the entire entity. 
 -- Ex:
@@ -393,6 +379,7 @@ mkLabelEntity' labelType ent =
 --
 -- instance ProtectedEntity (DCLabel Principal) User ProtectedUser where
 --     toProtected _entity@(Entity _eId _e) = do
+--         let _readLabelUserAdminGLBemail = readLabelUserAdminGLBemail
 --         let ident = userIdent _e
 --         let password = userPassword _e
 --         email <- 
@@ -403,8 +390,8 @@ mkLabelEntity' labelType ent =
 --          let admin = userAdmin _e
 --          return $ ProtectedUser ident password email admin
 
-mkProtectedEntityInstance :: Type -> LEntityDef -> Q [Dec]
-mkProtectedEntityInstance labelType ent = do
+mkProtectedEntityInstance :: Type -> (LEntityDef, UniqueLabels) -> Q [Dec]
+mkProtectedEntityInstance labelType (ent, (readLabels, _, _)) = do
     ( fStmts, fExps) <- foldM mkProtectedFieldInstance ([],[]) $ lEntityFields ent
     let recordCons = RecConE (mkName pName) fExps
     let body = DoE $ fStmts ++ [NoBindS (AppE (VarE (mkName "return")) recordCons)]
