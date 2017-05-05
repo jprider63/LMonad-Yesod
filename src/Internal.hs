@@ -260,8 +260,8 @@ lFieldWriteLabelName' eName anns = mkName $ ( lNameHelper' ( "writeLabel" ++ eNa
 lFieldCreateLabelName' :: String -> [LabelAnnotation] -> Name
 lFieldCreateLabelName' eName anns = mkName $ ( lNameHelper' ( "createLabel" ++ eName) anns) ++ "'"
 
-lFieldReadLabelVarName' :: String -> [LabelAnnotation] -> Name
-lFieldReadLabelVarName' eName anns = mkName $ lNameHelper' ( "_readLabel" ++ eName) anns
+lFieldReadLabelVarName :: String -> [LabelAnnotation] -> Name
+lFieldReadLabelVarName eName = mkName . lNameHelper' ( "_readLabel" ++ eName)
 
 lFieldReadLabelName :: String -> [LabelAnnotation] -> Name
 lFieldReadLabelName eName = mkName . lNameHelper' ( "readLabel" ++ eName)

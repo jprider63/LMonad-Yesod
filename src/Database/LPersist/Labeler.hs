@@ -12,6 +12,7 @@ import Language.Haskell.TH
 import Prelude
 
 import Internal
+import LMonad.TCB
 
 -- | Functions that use TH to generate labeling code. 
 -- All examples in this documentation reference the following Persist model:
@@ -204,7 +205,7 @@ mkLabelEntity :: Type -> (LEntityDef, UniqueLabels) -> [Dec]
 mkLabelEntity labelType (ent, (readLabels, writeLabels, createLabels)) = 
     let readD = map (mkLabelField lFieldReadLabelName lFieldReadLabelName') readLabels in
     let writeD = map (mkLabelField lFieldWriteLabelName lFieldWriteLabelName') writeLabels in
-    let createD = map (mkLabelField lFieldCreateLabelName lFieldCreateLabelName') createLabels in
+    let createD = map (mkLabelField' lFieldCreateLabelName lFieldCreateLabelName') createLabels in
     concat $ readD ++ writeD ++ createD
     
     where
@@ -212,6 +213,7 @@ mkLabelEntity labelType (ent, (readLabels, writeLabels, createLabels)) =
         eId = mkName "_eId"
         e = mkName "_entity"
         typ = AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType
+        typ' = AppT (AppT ArrowT (ConT (mkName eName))) labelType
 
         mkBody fName' anns = 
             let helper annotation acc = case annotation of
@@ -224,6 +226,12 @@ mkLabelEntity labelType (ent, (readLabels, writeLabels, createLabels)) =
                     AppE acc (AppE (VarE f) (VarE e))
             in
             foldr helper (VarE $ fName' eName anns) anns
+
+        mkLabelField' fName fName' anns = 
+            let name = fName eName anns in
+            let sig = SigD name typ' in
+            let def = FunD name [Clause [VarP e] (NormalB $ mkBody fName' anns) []] in
+            [sig, def]
 
         mkLabelField fName fName' anns = 
             let name = fName eName anns in
@@ -382,19 +390,16 @@ mkLabelEntity' labelType ent =
 --         let _readLabelUserAdminGLBemail = readLabelUserAdminGLBemail
 --         let ident = userIdent _e
 --         let password = userPassword _e
---         email <- 
---             let l = readLabelUserEmail _entity in
---             toLabeledTCB l $ do
---                 taintLabel l
---                 return $ userEmail _e
---          let admin = userAdmin _e
---          return $ ProtectedUser ident password email admin
+--         let email = Labeled _readLabelUserAdminGLBemail (userEmail _e)
+--         let admin = userAdmin _e
+--         return $ ProtectedUser ident password email admin
 
 mkProtectedEntityInstance :: Type -> (LEntityDef, UniqueLabels) -> Q [Dec]
 mkProtectedEntityInstance labelType (ent, (readLabels, _, _)) = do
+    let lStmts = map mkLabelStmts readLabels
     ( fStmts, fExps) <- foldM mkProtectedFieldInstance ([],[]) $ lEntityFields ent
     let recordCons = RecConE (mkName pName) fExps
-    let body = DoE $ fStmts ++ [NoBindS (AppE (VarE (mkName "return")) recordCons)]
+    let body = DoE $ lStmts ++ fStmts ++ [NoBindS (AppE (VarE (mkName "return")) recordCons)]
     let toProtected = FunD (mkName "toProtected") [Clause [AsP entity (ConP (mkName "Entity") [VarP eId,VarP e])] (NormalB body) []]
     let inst = InstanceD [] (AppT (AppT (ConT (mkName "ProtectedEntity")) labelType) (ConT (mkName eName))) [toProtected]
     let typInst = TySynInstD (mkName "Protected") $ TySynEqn [ConT (mkName eName)] (ConT $ mkName pName)
@@ -407,6 +412,11 @@ mkProtectedEntityInstance labelType (ent, (readLabels, _, _)) = do
         eId = mkName "_eId"
         entity = mkName "_entity"
 
+        mkLabelStmts anns = 
+            let vName = lFieldReadLabelVarName eName anns in
+            let fName = lFieldReadLabelName eName anns in 
+            LetS [ValD (VarP vName) (NormalB (AppE (VarE fName) (VarE entity))) []]
+
         mkProtectedFieldInstance :: ([Stmt],[FieldExp]) -> LFieldDef -> Q ([Stmt],[FieldExp])
         mkProtectedFieldInstance (sAcc, fAcc) field = do
             let fName = lFieldHaskell field
@@ -417,14 +427,11 @@ mkProtectedEntityInstance labelType (ent, (readLabels, _, _)) = do
             newS <- 
                   if readLabelIsBottom $ lFieldLabelAnnotations field then
                     return $ LetS [ValD (VarP vName) (NormalB (AppE (VarE getter) (VarE e))) []]
-                  else do
-                    lName <- newName "l"
-                    let taintRead = mkName $ "readLabel" ++ eName ++ (headToUpper fName)
-                    let lDec = ValD (VarP lName) (NormalB (AppE (VarE taintRead) (VarE entity))) []
-                    return $ BindS (VarP vName) $ LetE [lDec] $ AppE (AppE (VarE (mkName "toLabeledTCB")) (VarE lName)) $ DoE [
-                            NoBindS $ AppE (VarE (mkName "taintLabel")) (VarE lName),
-                            NoBindS $ AppE (VarE (mkName "return")) (AppE (VarE getter) (VarE e))
-                          ]
+                  else
+                    let (anns, _, _) = lFieldLabelAnnotations field in
+                    let lName = lFieldReadLabelVarName eName anns in
+                    return $ LetS [ValD (VarP vName) (NormalB (AppE (AppE (ConE 'Labeled) (VarE lName)) (AppE (VarE getter) (VarE e)))) []]
+                    
             return ( (newS:sAcc), (newF:fAcc))
 
 
