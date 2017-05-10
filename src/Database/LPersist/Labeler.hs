@@ -102,17 +102,17 @@ mkProtectedEntity labelType ent =
 --         [bottom, createLabelUserUser _e]
 
 mkLEntityInstance :: Type -> (LEntityDef, UniqueLabels) -> Q Dec
-mkLEntityInstance labelType (ent, (readLabels, writeLabels, createLabels)) = 
+mkLEntityInstance labelType (ent, (readLabels, writeLabels)) = --, createLabels)) = 
 
     let rExpr = ListE $ map (mkExpr lFieldReadLabelName) readLabels in
     let wExpr = ListE $ map (mkExpr lFieldWriteLabelName) writeLabels in
-    let cExpr = ListE $ map (mkExpr lFieldCreateLabelName) createLabels in
+    -- let cExpr = ListE $ map (mkExpr lFieldCreateLabelName) createLabels in
 
     let pat = VarP e in
     let funcs = [
-            FunD (mkName "getReadLabels") [Clause [pat] (NormalB rExpr) []],
-            FunD (mkName "getWriteLabels") [Clause [pat] (NormalB wExpr) []],
-            FunD (mkName "getCreateLabels") [Clause [pat] (NormalB cExpr) []]
+            FunD (mkName "getReadLabels") [Clause [pat] (NormalB rExpr) []]
+          , FunD (mkName "getWriteLabels") [Clause [pat] (NormalB wExpr) []]
+            -- , FunD (mkName "getCreateLabels") [Clause [pat] (NormalB cExpr) []]
           ]
     in
     return $ InstanceD [] (AppT (AppT (ConT (mkName "LEntity")) labelType) (ConT (mkName eName))) funcs
@@ -202,11 +202,11 @@ mkLEntityInstance labelType ent =
 --     writeLabelUserBottom'
 
 mkLabelEntity :: Type -> (LEntityDef, UniqueLabels) -> [Dec]
-mkLabelEntity labelType (ent, (readLabels, writeLabels, createLabels)) = 
+mkLabelEntity labelType (ent, (readLabels, writeLabels)) = -- , createLabels)) = 
     let readD = map (mkLabelField lFieldReadLabelName lFieldReadLabelName') readLabels in
     let writeD = map (mkLabelField lFieldWriteLabelName lFieldWriteLabelName') writeLabels in
-    let createD = map (mkLabelField' lFieldCreateLabelName lFieldCreateLabelName') createLabels in
-    concat $ readD ++ writeD ++ createD
+    -- let createD = map (mkLabelField' lFieldCreateLabelName lFieldCreateLabelName') createLabels in
+    concat $ readD ++ writeD -- ++ createD
     
     where
         eName = lEntityHaskell ent
@@ -247,11 +247,11 @@ mkLabelEntity labelType (ent, (readLabels, writeLabels, createLabels)) =
 --     ((toConfidentialityLabel "Admin") `glb` (toConfidentialityLabel uId))
 --
 mkLabelEntity' :: Type -> (LEntityDef, UniqueLabels) -> [Dec]
-mkLabelEntity' labelType (ent, (readLabels, writeLabels, createLabels)) = 
+mkLabelEntity' labelType (ent, (readLabels, writeLabels)) = -- , createLabels)) = 
     let readD = map (mkLabelField' lFieldReadLabelName' toConfLabel) readLabels in
     let writeD = map (mkLabelField' lFieldWriteLabelName' toIntegLabel) writeLabels in
-    let createD = map (mkLabelField' lFieldCreateLabelName' toIntegLabel) createLabels in
-    concat $ readD ++ writeD ++ createD
+    -- let createD = map (mkLabelField' lFieldCreateLabelName' toIntegLabel) createLabels in
+    concat $ readD ++ writeD -- ++ createD
 
     where
         eName = lEntityHaskell ent
@@ -395,7 +395,7 @@ mkLabelEntity' labelType ent =
 --         return $ ProtectedUser ident password email admin
 
 mkProtectedEntityInstance :: Type -> (LEntityDef, UniqueLabels) -> Q [Dec]
-mkProtectedEntityInstance labelType (ent, (readLabels, _, _)) = do
+mkProtectedEntityInstance labelType (ent, (readLabels, _)) = do
     let lStmts = map mkLabelStmts readLabels
     ( fStmts, fExps) <- foldM mkProtectedFieldInstance ([],[]) $ lEntityFields ent
     let recordCons = RecConE (mkName pName) fExps
@@ -428,7 +428,7 @@ mkProtectedEntityInstance labelType (ent, (readLabels, _, _)) = do
                   if readLabelIsBottom $ lFieldLabelAnnotations field then
                     return $ LetS [ValD (VarP vName) (NormalB (AppE (VarE getter) (VarE e))) []]
                   else
-                    let (anns, _, _) = lFieldLabelAnnotations field in
+                    let (anns, _) = lFieldLabelAnnotations field in
                     let lName = lFieldReadLabelVarName eName anns in
                     return $ LetS [ValD (VarP vName) (NormalB (AppE (AppE (ConE 'Labeled) (VarE lName)) (AppE (VarE getter) (VarE e)))) []]
                     

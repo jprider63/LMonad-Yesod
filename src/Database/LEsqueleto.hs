@@ -79,11 +79,11 @@ mkSerializedLEntityDefs ents' =
                   let typ = mkSerializedFieldType $ lFieldType field in
                   let strict = ConE $ if lFieldStrict field then 'True else 'False in
                   let anns = 
-                        let ( r', w', c') = lFieldLabelAnnotations field in
+                        let ( r', w') = lFieldLabelAnnotations field in
                         let r = ListE $ map mkSerializedLabelAnnotation r' in
                         let w = ListE $ map mkSerializedLabelAnnotation w' in
-                        let c = ListE $ map mkSerializedLabelAnnotation c' in
-                        TupE [ r, w, c]
+                        -- let c = ListE $ map mkSerializedLabelAnnotation c' in
+                        TupE [ r, w] -- , c]
                   in
                   let def = AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns in
                   TupE [name, def]
@@ -418,7 +418,7 @@ generateSql lEntityDefs s =
         getLTableField tableS fieldS = 
             if fieldS == "id" then
                 let typ = FTTypeCon Nothing (Text.pack $ tableS ++ "Id") in
-                LFieldDef fieldS typ True ([],[],[])
+                LFieldDef fieldS typ True ([],[])
             else
                 let ent = getLTable tableS in
                 -- let findField [] = error $ "Could not find field `" ++ fieldS ++ "` for table `" ++ tableS ++ "`"
@@ -523,7 +523,7 @@ generateSql lEntityDefs s =
                 let dep = if readLabelIsBottom $ lFieldLabelAnnotations fieldDef then
                         Nothing
                       else
-                        let ( anns, _, _) = lFieldLabelAnnotations fieldDef in
+                        let ( anns, _) = lFieldLabelAnnotations fieldDef in
                         Just $ List.foldl' (\acc ann -> case ann of
                             LAId ->
                                 ( tableS, "id"):acc

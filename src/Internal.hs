@@ -30,10 +30,11 @@ data LEntityDef = LEntityDef
 --     , lEntityDerives :: ![Text]
 --     , lEntityExtra   :: !(Map Text [ExtraLine])
 --     , lEntitySum     :: !Bool
+    , lEntityLabelAnnotations :: !([LabelAnnotation],[LabelAnnotation])
     }
     deriving (Show, Eq, Read, Ord)
 
-type UniqueLabels = ([[LabelAnnotation]], [[LabelAnnotation]], [[LabelAnnotation]])
+type UniqueLabels = ([[LabelAnnotation]], [[LabelAnnotation]]) -- , [[LabelAnnotation]])
 
 data LFieldDef = LFieldDef
     { lFieldHaskell   :: !String -- ^ name of the field
@@ -43,7 +44,7 @@ data LFieldDef = LFieldDef
 --    , lFieldAttrs     :: ![Attr]    -- ^ user annotations for a field
     , lFieldStrict    :: !Bool      -- ^ a strict field in the data type. Default: true
 --    , lFieldReference :: !ReferenceDef
-    , lFieldLabelAnnotations :: !([LabelAnnotation],[LabelAnnotation],[LabelAnnotation])
+    , lFieldLabelAnnotations :: !([LabelAnnotation],[LabelAnnotation]) -- ,[LabelAnnotation])
     }
     deriving (Show, Eq, Read, Ord)
 
@@ -61,6 +62,7 @@ toLEntityDef ent =
         lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
 --      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
       , lEntityFields = Map.fromList $ map toLFieldDef (entityFields ent)
+      , lEntityLabelAnnotations = labels
     }
     in
     case checkReadLabelIsBottom def of
@@ -68,6 +70,22 @@ toLEntityDef ent =
             def
         Just err ->
             error err
+    
+    where
+        -- JP: Do we need to sort the labels?
+        labels = 
+            let attrs = entityAttrs ent in
+            error $ show attrs
+            -- TODO: Check that create does not contain id. Maybe also no field??
+
+            -- -- Check that create does not have id.
+            -- if createContainsId createLabels then
+            --     error $ "Field `" ++ (Text.unpack $ unHaskellName $ fieldHaskell f) ++ "` cannot have label `Id` in the create annotation."
+            -- else
+
+        createContainsId [] = False
+        createContainsId (LAId:_) = True
+        createContainsId (_:t) = createContainsId t
 
 -- Returns an error message if a read label is not bottom.
 checkReadLabelIsBottom :: LEntityDef -> Maybe String
@@ -77,7 +95,7 @@ checkReadLabelIsBottom def = foldr helper Nothing fields
 
         helper _ e@(Just _) = e
         helper field Nothing = 
-            let (readLabels, _, _) = lFieldLabelAnnotations field in
+            let (readLabels, _) = lFieldLabelAnnotations field in
             foldr (helper' $ lFieldHaskell field) Nothing readLabels
 
         helper' _ _ e@(Just _) = e
@@ -87,7 +105,7 @@ checkReadLabelIsBottom def = foldr helper Nothing fields
             Nothing -> 
                 error "checkReadLabelIsBottom: unreachable"
             Just field -> case lFieldLabelAnnotations field of
-                ([],_,_) -> Nothing
+                ([],_) -> Nothing
                 _ -> Just $ "The read label of `" ++ lEntityHaskell def ++ "." ++ name ++ "` must be bottom (_) since it is part of `" ++ origName ++ "`'s read label."
 
 --     where
@@ -141,8 +159,8 @@ toLFieldDef f =
     where
         fieldName = Text.unpack $ unHaskellName $ fieldHaskell f
         labels = case labels' of
-            Nothing -> ([],[],[])
-            Just (read, write, create) -> (List.sort read, List.sort write, List.sort create)
+            Nothing -> ([],[])
+            Just (read, write) -> (List.sort read, List.sort write) -- , List.sort create)
         labels' = 
             let attrs = fieldAttrs f in
             List.foldl' (\acc attr -> 
@@ -150,12 +168,7 @@ toLFieldDef f =
                 if acc /= Nothing || prefix /= "chevrons=" then
                     acc
                 else
-                    let labels@(_,_,createLabels) = parseChevrons affix in
-                    -- Check that create does not have id.
-                    if createContainsId createLabels then
-                        error $ "Field `" ++ (Text.unpack $ unHaskellName $ fieldHaskell f) ++ "` cannot have label `Id` in the create annotation."
-                    else
-                        Just labels
+                    Just $ parseChevrons affix
               ) Nothing attrs
         typ = if nullable (fieldAttrs f) then
                 FTApp (FTTypeCon Nothing "Maybe") $ fieldType f
@@ -165,17 +178,14 @@ toLFieldDef f =
             | "Maybe" `elem` s = True
             | "nullable" `elem` s = True
             | otherwise = False
-        createContainsId [] = False
-        createContainsId (LAId:_) = True
-        createContainsId (_:t) = createContainsId t
 
 -- Parse chevrons
--- C = < L , L , L >
+-- C = < L , L >
 -- L = K | _
 -- K = A || K | A
 -- A = Id | Const name | Field name
 
-parseChevrons :: Text -> ([LabelAnnotation],[LabelAnnotation],[LabelAnnotation])
+parseChevrons :: Text -> ([LabelAnnotation],[LabelAnnotation])
 parseChevrons s = case parseOnly parseC s of
     Left err ->
         error $ "Could not parse labels in chevrons: " ++ err
@@ -188,10 +198,7 @@ parseChevrons s = case parseOnly parseC s of
             skipSpace
             _ <- char ','
             write <- parseL
-            skipSpace
-            _ <- char ','
-            create <- parseL
-            return (read,write,create)
+            return (read,write)
 
         parseL = (skipSpace >> char '_' >> return []) <|> parseK
         
@@ -232,7 +239,7 @@ getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
     Just def ->
         def
 
-readLabelIsBottom ([], _, _) = True
+readLabelIsBottom ([], _) = True
 readLabelIsBottom _ = False
 
 lEntityFieldsList :: LEntityDef -> [LFieldDef]
@@ -240,8 +247,8 @@ lEntityFieldsList = Map.elems . lEntityFields
 
 lEntityUniqueLabels :: LEntityDef -> UniqueLabels
 lEntityUniqueLabels ent =
-    let (r, w, c) = unzip3 $ fmap lFieldLabelAnnotations $ lEntityFieldsList ent in
-    (List.nub r, List.nub w, List.nub c)
+    let (r, w) = unzip $ fmap lFieldLabelAnnotations $ lEntityFieldsList ent in
+    (List.nub r, List.nub w) -- , List.nub c)
 
 lNameHelper' :: String -> [LabelAnnotation] -> String
 lNameHelper' prefix [] = prefix ++ "Bottom"
