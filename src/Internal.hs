@@ -12,6 +12,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Database.Persist.Types
 import Language.Haskell.TH (Name, mkName)
+import LMonad (Label(..))
 
 data LabelAnnotation = 
     LAId
@@ -56,6 +57,19 @@ headToLower :: String -> String
 headToLower (h:t) = (Char.toLower h):t
 headToLower s = error $ "Invalid name `" ++ s ++ "`"
 
+attrsToLabel attrs validator = 
+    let labels = List.foldl' (\acc attr ->
+          let ( prefix, affix) = Text.splitAt 9 attr in
+          if acc /= Nothing || prefix /= "chevrons=" then
+            acc
+          else
+            Just $ validator $ parseChevrons affix
+         ) Nothing attrs
+    in
+    case labels of
+        Nothing -> ([],[])
+        Just (read, write) -> (List.sort read, List.sort write)
+
 toLEntityDef :: EntityDef -> LEntityDef
 toLEntityDef ent = 
     let def = LEntityDef {
@@ -75,13 +89,14 @@ toLEntityDef ent =
         -- JP: Do we need to sort the labels?
         labels = 
             let attrs = entityAttrs ent in
-            error $ show attrs
-            -- TODO: Check that create does not contain id. Maybe also no field??
-
-            -- -- Check that create does not have id.
-            -- if createContainsId createLabels then
-            --     error $ "Field `" ++ (Text.unpack $ unHaskellName $ fieldHaskell f) ++ "` cannot have label `Id` in the create annotation."
-            -- else
+            attrsToLabel attrs $ \l@(_, createLabels) -> 
+                -- Check that create does not have id.
+                if createContainsId createLabels then
+                    error $ "Field `" ++ (Text.unpack $ unHaskellName $ entityHaskell ent) ++ "` cannot have label `Id` in the create annotation."
+                else
+                    l
+            
+                -- TODO: Maybe also no field??
 
         createContainsId [] = False
         createContainsId (LAId:_) = True
@@ -158,18 +173,13 @@ toLFieldDef f =
 
     where
         fieldName = Text.unpack $ unHaskellName $ fieldHaskell f
-        labels = case labels' of
-            Nothing -> ([],[])
-            Just (read, write) -> (List.sort read, List.sort write) -- , List.sort create)
-        labels' = 
+        -- labels = case labels' of
+        --     Nothing -> ([],[])
+        --     Just (read, write) -> (List.sort read, List.sort write) -- , List.sort create)
+        labels = 
             let attrs = fieldAttrs f in
-            List.foldl' (\acc attr -> 
-                let ( prefix, affix) = Text.splitAt 9 attr in
-                if acc /= Nothing || prefix /= "chevrons=" then
-                    acc
-                else
-                    Just $ parseChevrons affix
-              ) Nothing attrs
+            attrsToLabel attrs id
+
         typ = if nullable (fieldAttrs f) then
                 FTApp (FTTypeCon Nothing "Maybe") $ fieldType f
             else
@@ -278,4 +288,9 @@ lFieldWriteLabelName eName = mkName . lNameHelper' ( "writeLabel" ++ eName)
 
 lFieldCreateLabelName :: String -> [LabelAnnotation] -> Name
 lFieldCreateLabelName eName = mkName . lNameHelper' ( "createLabel" ++ eName)
+
+joinLabels :: Label l => [l] -> l
+joinLabels [] = bottom
+joinLabels [l] = l
+joinLabels (h:t) = h `lub` joinLabels t
 
