@@ -316,20 +316,22 @@ pGetBy uniq = undefined
 --     lift $ mapM_ raiseLabelWrite res
 --     Persist.deleteWhere filts
 
-selectFirst :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe (Entity v))
-selectFirst filts opts = undefined
--- TODO
--- do
---     res <- Persist.selectFirst filts opts
---     whenJust res $ lift . raiseLabelRead
---     return res
+selectFirst :: forall l m v backend . (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe (Entity v))
+selectFirst filts opts = do
+    resM <- Persist.selectFirst filts opts
+    let tableL = tableReadLabel (Proxy :: Proxy v)
+    lift $ case resM of
+        Nothing -> do
+            taintLabel tableL
+            return resM
+        Just res -> do
+            taintLabel $ tableL `lub` (getLabelRead res)
+            return resM
 
 toProtectedWithKey :: (LMonad m, ProtectedEntity l e) => Entity e -> LMonadT l m (PEntity l e)
-toProtectedWithKey r = undefined
--- TODO
---do
---    p <- toProtected r
---    return $ PEntity (entityKey r) p
+toProtectedWithKey r = do
+    p <- toProtected r
+    return $ PEntity (entityKey r) p
 
 pSelectFirst :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, ProtectedEntity l v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
 pSelectFirst filts opts = undefined
@@ -344,8 +346,9 @@ count filts = do
     res <- Persist.selectList filts []
 
     let lfs = concatMap filterToFields filts
-    lift $ mapM (\f -> taintLabel $ f $ head res) lfs
-    -- let lfs = map (fieldReadLabel . unFieldToLabel) $ concatMap filterToFields filts
+    lift $ taintLabel $ joinLabels $ concatMap (\e -> map ($ e) lfs) res
+
+    return $ length res
 
     -- let (l, c) = foldr (\e (l, c) -> (l `lub` ( joinLabels (map (\f -> f e) lfs)), c + 1)) ( bottom, 0) res
 
@@ -353,8 +356,6 @@ count filts = do
 
 
     -- lift $ foldM (\acc e -> (raiseLabelRead e) >> (return $ acc + 1)) 0 res
-
-    undefined
 
 -- -- TODO
 -- --  selectSource
