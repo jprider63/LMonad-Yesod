@@ -41,8 +41,8 @@ module Database.LPersist (
     , replace
     , delete
     , update
---    , updateGet
---    , pUpdateGet
+    , updateGet
+    , pUpdateGet
     , getJust
     , pGetJust
     , getBy
@@ -240,34 +240,28 @@ delete key = do
 
 -- | This function only works for SqlBackends since we need to be able to rollback transactions.
 update :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) ()
-update key updates = do
-    resM <- Persist.get key
-    case resM of
-        Nothing ->
-            return ()
-        Just oldVal -> do
-            newVal <- Persist.updateGet key updates
-            c <- lift getClearance
-            mapM_ (\x -> guardCanFlowToRollback x c) $ getWriteLabels $ Entity key oldVal
-            let newE = Entity key newVal
-            mapM_ (\x -> guardCanFlowToRollback x c) $ getWriteLabels newE
+update = updateHelper (return ()) $ const $ return ()
 
-            l <- lift getCurrentLabel
-            mapM_ (\f -> guardCanFlowToRollback l $ f newE) $ concatMap updateToFields updates
 
-            return ()
+updateGet :: forall backend l m v . (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) v
+updateGet key = updateHelper err f key
+    where
+        f e = do
+            taintLabel $ tRead `lub` (getLabelRead $ Entity key e)
+            return e
 
--- update = updateHelper (return ()) $ \_ -> return ()
--- 
--- updateGet :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) v
--- updateGet key = updateHelper err return key
---     where
---         err = liftIO $ throwIO $ Persist.KeyNotFound $ Prelude.show key
--- 
--- pUpdateGet :: (backend ~ SqlBackend, ProtectedEntity l v, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) (Protected v)
--- pUpdateGet key = updateHelper err (toProtected . (Entity key)) key
---     where
---         err = liftIO $ throwIO $ Persist.KeyNotFound $ Prelude.show key
+        tRead = tableReadLabel (Proxy :: Proxy v)
+        err = do
+            taintLabel tRead
+            liftIO $ throwIO $ Persist.KeyNotFound $ Prelude.show key
+
+pUpdateGet :: forall l m v backend . (backend ~ SqlBackend, ProtectedEntity l v, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) (Protected v)
+pUpdateGet key updates = do
+    lift $ taintLabel $ tableReadLabel (Proxy :: Proxy v)
+    updateHelper err (return . toProtected . (Entity key)) key updates
+
+    where
+        err = liftIO $ throwIO $ Persist.KeyNotFound $ Prelude.show key
 
 getJust :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> ReaderT backend (LMonadT l m) v
 getJust key = get key >>= maybe err return
@@ -358,8 +352,6 @@ toProtectedWithKey r =
 pSelectFirst :: forall backend l m v . (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v, ProtectedEntity l v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
 pSelectFirst filts opts = do
     let tableL = tableReadLabel (Proxy :: Proxy v)
-    let lfs = concatMap filterToFields filts
-    let los = concatMap selectOptToFields opts
 
     resM <- Persist.selectFirst filts opts
     lift $ case resM of
@@ -368,6 +360,8 @@ pSelectFirst filts opts = do
 
             return Nothing
         Just e -> do
+            let lfs = concatMap filterToFields filts
+            let los = concatMap selectOptToFields opts
             taintLabel $ lub tableL $ joinLabels $ map ($ e) los ++ map ($ e) lfs
 
             return $ Just $ toProtectedWithKey e
@@ -452,8 +446,25 @@ guardCanFlowToRollback a b =
         Persist.transactionUndo
         lift $ LMonadT $ lift lFail
 
--- updateHelper :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (LMonadT l m a) -> (v -> LMonadT l m a) -> (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) a
--- updateHelper n j key updates = do
+updateHelper :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => (LMonadT l m a) -> (v -> LMonadT l m a) -> (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) a
+updateHelper n j key updates = do
+    resM <- Persist.get key
+    case resM of
+        Nothing ->
+            lift n
+        Just oldVal -> do
+            newVal <- Persist.updateGet key updates
+            c <- lift getClearance
+            mapM_ (\x -> guardCanFlowToRollback x c) $ getWriteLabels $ Entity key oldVal
+            let newE = Entity key newVal
+            mapM_ (\x -> guardCanFlowToRollback x c) $ getWriteLabels newE
+
+            l <- lift getCurrentLabel
+            mapM_ (\f -> guardCanFlowToRollback l $ f newE) $ concatMap updateToFields updates
+
+            lift $ j newVal
+
+
 --     res <- Persist.get key
 --     maybe (lift n) (\oldVal -> do
 --         lift $ raiseLabelWrite $ Entity key oldVal
