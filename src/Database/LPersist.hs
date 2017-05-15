@@ -21,7 +21,7 @@
 --
 -- Modified by James Parker in 2014. 
 
-{-# LANGUAGE TypeFamilies, ScopedTypeVariables, TypeFamilyDependencies #-}
+{-# LANGUAGE TypeFamilies, ScopedTypeVariables #-}
 
 module Database.LPersist (
       LEntity(..)
@@ -87,14 +87,18 @@ class (Label l) => LEntity l e where
 
 -- class Label l => LEntityField l e t where
 --     fieldReadLabel :: EntityField e t -> Entity e -> l
-class Label l => LEntityField f where
-    type LEntityFieldLabel f = l | f -> l
-    type LEntityFieldEntity f = e | f -> e
-    fieldReadLabel :: f -> LEntityFieldEntity f -> LEntityFieldLabel f
 
-data FieldToLabel l e = FieldToLabel {
-    unFieldToLabel :: forall t . LEntityField l e t => EntityField e t
-  }
+class (Label l, PersistEntity e) => LPersistEntity l e where
+    lPersistFieldLabel :: EntityField e t -> Entity e -> l
+
+-- class Label l => LEntityField f where
+--     type LEntityFieldLabel f = l | f -> l
+--     type LEntityFieldEntity f = e | f -> e
+--     fieldReadLabel :: f -> LEntityFieldEntity f -> LEntityFieldLabel f
+
+-- data FieldToLabel l e = FieldToLabel {
+--     unFieldToLabel :: forall t . LEntityField l e t => EntityField e t
+--   }
 
 -- instance LTableLength l v => LTableLength l (Entity v) where
 --     tableReadLabel Proxy = tableReadLabel (Proxy :: Proxy v)
@@ -108,12 +112,13 @@ data FieldToLabel l e = FieldToLabel {
 -- instance LTableLength l v => LTableLength l (Unique v) where
 --     tableReadLabel Proxy = tableReadLabel (Proxy :: Proxy v)
 
-filterToFields :: forall l e t . (Label l, LEntityField l e t) => Filter e -> [FieldToLabel l e]
-filterToFields _ = undefined
--- filterToFields (Filter field _ _) = [FieldToLabel (field :: EntityField e t)]
--- filterToFields (FilterAnd fs) = concatMap filterToFields fs
--- filterToFields (FilterOr fs) = concatMap filterToFields fs
--- filterToFields (BackendFilter _) = error "filterToFields: Unsupported backend specific filter."
+-- filterToFields :: forall l e t . (Label l, LEntityField l e t) => Filter e -> [FieldToLabel l e]
+filterToFields :: forall l e . (LPersistEntity l e) =>  Filter e -> [Entity e -> l]
+-- filterToFields (Filter field _ _) = [persistFieldDef (field :: EntityField e t)]
+filterToFields (Filter field _ _) = [lPersistFieldLabel field]
+filterToFields (FilterAnd fs) = concatMap filterToFields fs
+filterToFields (FilterOr fs) = concatMap filterToFields fs
+filterToFields (BackendFilter _) = error "filterToFields: Unsupported backend specific filter."
 
 getLabelRead :: LEntity l e => Entity e -> l
 getLabelRead = joinLabels . getReadLabels
@@ -334,13 +339,15 @@ pSelectFirst filts opts = undefined
 --     lift $ mapM toProtectedWithKey res
 --     -- lift $ maybe (return Nothing) (fmap Just . toProtected) res
 
-count :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> ReaderT backend (LMonadT l m) Int
+count :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => [Filter v] -> ReaderT backend (LMonadT l m) Int
 count filts = do
     res <- Persist.selectList filts []
 
-    let lfs = map (fieldReadLabel . unFieldToLabel) $ concatMap filterToFields filts
+    let lfs = concatMap filterToFields filts
+    lift $ mapM (\f -> taintLabel $ f $ head res) lfs
+    -- let lfs = map (fieldReadLabel . unFieldToLabel) $ concatMap filterToFields filts
 
-    let (l, c) = foldr (\e (l, c) -> (l `lub` ( joinLabels (map (\f -> f e) lfs)), c + 1)) ( bottom, 0) res
+    -- let (l, c) = foldr (\e (l, c) -> (l `lub` ( joinLabels (map (\f -> f e) lfs)), c + 1)) ( bottom, 0) res
 
 
 
