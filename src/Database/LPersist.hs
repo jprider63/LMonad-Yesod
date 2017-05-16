@@ -47,16 +47,16 @@ module Database.LPersist (
     , pGetJust
     , getBy
     , pGetBy
---    , deleteBy
+    , deleteBy
 --    , insertUnique
---    , updateWhere
---    , deleteWhere
+    , updateWhere
+    , deleteWhere
     , selectFirst
     , pSelectFirst
     , count
     , selectList
     , pSelectList
---    , selectKeysList
+    , selectKeysList
     ) where
 
 import Control.Exception.Lifted (throwIO)
@@ -91,6 +91,7 @@ class (Label l) => LEntity l e where
 class (Label l, PersistEntity e) => LPersistEntity l e | e -> l where
     lPersistFieldLabel :: EntityField e t -> Entity e -> l
     lPersistReadLabelDependencies :: EntityField e t -> [EntityField e v]
+    lPersistUniqueFields :: Unique e -> [EntityField e v]
 
 -- class Label l => LEntityField f where
 --     type LEntityFieldLabel f = l | f -> l
@@ -112,6 +113,9 @@ class (Label l, PersistEntity e) => LPersistEntity l e | e -> l where
 -- 
 -- instance LTableLength l v => LTableLength l (Unique v) where
 --     tableReadLabel Proxy = tableReadLabel (Proxy :: Proxy v)
+
+uniqueToFields :: forall l e . (LPersistEntity l e) => Unique e -> [Entity e -> l]
+uniqueToFields uniq = map lPersistFieldLabel $ lPersistUniqueFields uniq
 
 -- filterToFields :: forall l e t . (Label l, LEntityField l e t) => Filter e -> [FieldToLabel l e]
 filterToFields :: forall l e . (LPersistEntity l e) => Filter e -> [Entity e -> l]
@@ -285,15 +289,29 @@ getBy uniq = do
     lift $ taintLabel $ maybe tRead (\e -> tRead `lub` getLabelRead e) res
     return res
 
-pGetBy :: (ProtectedEntity l v, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
-pGetBy uniq = undefined
--- TODO XXX
--- do
---     res <- Persist.getBy uniq
---     lift $ mapM toProtectedWithKey res
+pGetBy :: forall l m v backend . (ProtectedEntity l v, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => Unique v -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
+pGetBy uniq = do
+    let tRead = tableReadLabel (Proxy :: Proxy v)
+    resM <- Persist.getBy uniq
+    lift $ case resM of
+        Nothing -> do
+            taintLabel tRead
+            return Nothing
+        Just e -> do
+            taintLabel $ lub tRead $ joinLabels $ map ($ e) $ uniqueToFields uniq
 
--- deleteBy :: (ProtectedEntity l v, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) ()
--- deleteBy uniq = do
+            return $ Just $ toProtectedWithKey e
+
+deleteBy :: forall l v m backend . (ProtectedEntity l v, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) ()
+deleteBy uniq = do
+    l <- lift getCurrentLabel
+    lift $ guardCanFlowTo l $ tableReadLabel (Proxy :: Proxy v)
+    resM <- Persist.getBy uniq
+    whenJust resM $ \val -> do
+        c <- lift getClearance
+        lift $ mapM_ (\x -> guardCanFlowTo x c) $ getWriteLabels val
+        Persist.delete $ entityKey val
+            
 --     res <- Persist.getBy uniq
 --     whenJust res $ \e -> do
 --         lift $ raiseLabelWrite e
@@ -314,9 +332,23 @@ pGetBy uniq = undefined
 -- --
 -- --  selectSourceRes
 -- --  selectKeysRes
--- 
--- updateWhere :: (backend ~ SqlBackend, PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [Update v] -> ReaderT backend (LMonadT l m) ()
--- updateWhere filts upts = do
+
+updateWhere :: forall backend m v l . (backend ~ SqlBackend, PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => [Filter v] -> [Update v] -> ReaderT backend (LMonadT l m) ()
+updateWhere filts updates = do
+    res <- Persist.selectList filts []
+    c <- lift getClearance
+    l <- lift getCurrentLabel
+    mapM_ (\oldE@(Entity key _) -> do
+        mapM_ (\x -> guardCanFlowToRollback x c) $ getWriteLabels oldE
+
+        newVal <- Persist.updateGet key updates  
+        let newE = Entity key newVal
+        mapM_ (\x -> guardCanFlowToRollback x c) $ getWriteLabels newE
+
+        mapM_ (\f -> guardCanFlowToRollback l $ f newE) $ concatMap updateToFields updates
+      ) res
+
+
 --     res <- Persist.selectList filts []
 --     -- `updateGet` should rollback transaction if any checks fail
 --     mapM_ (\e -> 
@@ -325,9 +357,16 @@ pGetBy uniq = undefined
 --             (updateGet (entityKey e) upts) >>=
 --                 (lift . raiseLabelWrite . (Entity k))
 --       ) res
--- 
--- deleteWhere :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> ReaderT backend (LMonadT l m) ()
--- deleteWhere filts = do
+
+deleteWhere :: forall l m v backend . (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> ReaderT backend (LMonadT l m) ()
+deleteWhere filts = do
+    l <- lift getCurrentLabel
+    lift $ guardCanFlowTo l $ tableReadLabel (Proxy :: Proxy v)
+    res <- Persist.selectList filts []
+    c <- lift getClearance
+    lift $ mapM_ (mapM_ (\x -> guardCanFlowTo x c) . getWriteLabels) res
+    Persist.deleteWhere filts
+
 --     res <- Persist.selectList filts []
 --     lift $ mapM_ raiseLabelWrite res
 --     Persist.deleteWhere filts
@@ -411,15 +450,23 @@ pSelectList filts opts = do
     return res
     
 
---     l <- Persist.selectList filts opts
---     lift $ mapM toProtectedWithKey l 
--- 
--- selectKeysList :: (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [Key v]
--- selectKeysList filts opts = do
---     l <- Persist.selectList filts opts
---     lift $ mapM_ raiseLabelRead l
---     return $ map entityKey l
---     
+selectKeysList :: forall l m v backend . (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [Key v]
+selectKeysList filts opts = do
+    res' <- Persist.selectList filts opts
+    
+    let tableL = tableReadLabel (Proxy :: Proxy v)
+    let lfs = concatMap filterToFields filts
+    let los = concatMap selectOptToFields opts
+
+    let (res, l) = foldr (\e (ps, l) -> 
+            let l' = lub l $ joinLabels $ map ($ e) los ++ map ($ e) lfs in
+            let ps' = (entityKey e):ps in
+            (ps', l')
+          ) ([], tableL) res'
+
+    lift $ taintLabel l
+    return res
+
 -- -- TODO
 -- --  deleteCascade
 -- --  deleteCascadeWhere
@@ -464,17 +511,3 @@ updateHelper n j key updates = do
 
             lift $ j newVal
 
-
---     res <- Persist.get key
---     maybe (lift n) (\oldVal -> do
---         lift $ raiseLabelWrite $ Entity key oldVal
---         newVal <- Persist.updateGet key updates
---         let newL = getLabelWrite $ Entity key newVal
---         l <- lift $ lubCurrentLabel newL
---         guard <- lift $ canSetLabel l
---         unless guard
---             -- Rollback
---             Persist.transactionUndo
---         lift $ setLabel l
---         lift $ j newVal
---       ) res
