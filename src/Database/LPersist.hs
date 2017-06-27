@@ -78,12 +78,16 @@ import Internal
 -- Internally used to raise the current label on database calls. 
 -- `mkLabels` automatically generates instances of `LEntity` for your model. 
 class (Label l) => LEntity l e where
-    getReadLabels :: Entity e -> [l]
-    getWriteLabels :: Entity e -> [l]
+    getFieldLabels :: Entity e -> [l]
+
+    -- getReadLabels :: Entity e -> [l]
+    -- getWriteLabels :: Entity e -> [l]
     -- getCreateLabels :: e -> [l]
 
-    tableReadLabel :: Proxy e -> l
-    tableInsertLabel :: e -> l
+    tableLabel :: Proxy e -> l
+
+    -- tableReadLabel :: Proxy e -> l
+    -- tableInsertLabel :: e -> l
 
 -- class Label l => LEntityField l e t where
 --     fieldReadLabel :: EntityField e t -> Entity e -> l
@@ -135,8 +139,8 @@ updateToFields :: forall l e . (LPersistEntity l e) => Update e -> [Entity e -> 
 updateToFields (Update field _ _) = map lPersistFieldLabel $ lPersistReadLabelDependencies field
 updateToFields (BackendUpdate _) = error "updateToFields: Unsupported backend specific update."
 
-getLabelRead :: LEntity l e => Entity e -> l
-getLabelRead = joinLabels . getReadLabels
+getEntityLabel :: LEntity l e => Entity e -> l
+getEntityLabel = joinLabels . getFieldLabels
 
 -- raiseLabelRead :: (Label l, LMonad m, LEntity l e) => Entity e -> LMonadT l m ()
 -- raiseLabelRead e = taintLabel $ getLabelRead e
@@ -171,28 +175,29 @@ lDefaultRunDB getConfig getPool f = do
 
 get :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Key v -> ReaderT backend (LMonadT l m) (Maybe v)
 get key = do
-    let tRead = tableReadLabel (Proxy :: Proxy v)
+    let tLabel = tableLabel (Proxy :: Proxy v)
     res <- Persist.get key
     lift $ taintLabel $ maybe 
-        tRead 
-        (\v -> tRead `lub` (getLabelRead $ Entity key v)) res
+        tLabel
+        (\v -> tLabel `lub` (getEntityLabel $ Entity key v)) res
     return res
 
 pGet :: forall l m v backend . (ProtectedEntity l v, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Key v -> ReaderT backend (LMonadT l m) (Maybe (Protected v))
 pGet key = do
-    lift $ taintLabel $ tableReadLabel (Proxy :: Proxy v)
+    lift $ taintLabel $ tableLabel (Proxy :: Proxy v)
     res <- Persist.get key
     return $ fmap (toProtected . Entity key) res
 
 insert :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => v -> ReaderT backend (LMonadT l m) (Key v)
 insert val = do
+    let tLabel = tableLabel (Proxy :: Proxy v)
     c <- lift getClearance
-    lift $ guardCanFlowTo (tableInsertLabel val) c
+    lift $ guardCanFlowTo tLabel c
     l <- lift getCurrentLabel
-    lift $ guardCanFlowTo l $ tableReadLabel (Proxy :: Proxy v)
+    lift $ guardCanFlowTo l tLabel
     k <- Persist.insert val
     let e = Entity k val
-    mapM_ (guardCanFlowToRollback l) $ getReadLabels e
+    mapM_ (\j -> guardCanFlowToRollback l j >> guardCanFlowToRollback j c) $ getFieldLabels e
     return k
 
 insert_ :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => v -> ReaderT backend (LMonadT l m) ()
@@ -206,11 +211,10 @@ insertMany vals = mapM insert vals
 
 insertKey :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
 insertKey key val = do
+    let tLabel = tableLabel (Proxy :: Proxy v)
     c <- lift getClearance
-    lift $ guardCanFlowTo (tableInsertLabel val) c
     l <- lift getCurrentLabel
-    lift $ guardCanFlowTo l $ tableReadLabel (Proxy :: Proxy v)
-    lift $ mapM_ (guardCanFlowTo l) $ getReadLabels $ Entity key val
+    lift $ mapM_ (\j -> guardCanFlowTo l j >> guardCanFlowTo j c) $ tLabel:(getFieldLabels $ Entity key val)
     Persist.insertKey key val
 
 -- repsert :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
@@ -224,22 +228,22 @@ replace :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, bac
 replace key val = do
     let e = Entity key val
     l <- lift getCurrentLabel
-    lift $ mapM_ (guardCanFlowTo l) $ getReadLabels e
     c <- lift getClearance
-    lift $ mapM_ (\x -> guardCanFlowTo x c) $ getWriteLabels e
+    lift $ mapM_ (\j -> guardCanFlowTo l j >> guardCanFlowTo j c) $ getFieldLabels e
     oldM <- Persist.get key
     whenJust oldM $ \old -> do
-        lift $ mapM_ (\x -> guardCanFlowTo x c) $ getWriteLabels $ Entity key old
+        lift $ mapM_ (\x -> guardCanFlowTo l x >> guardCanFlowTo x c) $ getFieldLabels $ Entity key old
         Persist.replace key val
 
 delete :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> ReaderT backend (LMonadT l m) ()
 delete key = do
+    let tLabel = tableLabel (Proxy :: Proxy v)
     l <- lift getCurrentLabel
-    lift $ guardCanFlowTo l $ tableReadLabel (Proxy :: Proxy v)
+    c <- lift getClearance
+    lift $ guardCanFlowTo l tLabel >> guardCanFlowTo tLabel c
     res <- Persist.get key
     whenJust res $ \val -> do
-        c <- lift getClearance
-        lift $ mapM_ (\x -> guardCanFlowTo x c) $ getWriteLabels $ Entity key val
+        lift $ mapM_ (\x -> guardCanFlowTo l x >> guardCanFlowTo x c) $ getFieldLabels $ Entity key val
         Persist.delete key
 
 -- | This function only works for SqlBackends since we need to be able to rollback transactions.
