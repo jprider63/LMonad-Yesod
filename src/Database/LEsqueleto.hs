@@ -252,10 +252,11 @@ generateSql lEntityDefs s =
                                               else
                                                 nonoptionCase $ VarE 'toProtected
                                           else
+                                            let taintEntityLabel = AppE (VarE 'taintLabel) (VarE 'getEntityLabel) in
                                             NoBindS $ if optional then
-                                                optionCase (ConE '()) $ VarE 'raiseLabelRead
+                                                optionCase (ConE '()) taintEntityLabel
                                               else
-                                                nonoptionCase $ VarE 'raiseLabelRead
+                                                nonoptionCase taintEntityLabel
                                     in
                                     stmt:acc
                             ) [] terms 

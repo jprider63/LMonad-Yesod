@@ -25,7 +25,7 @@
 
 module Database.LPersist (
       LEntity(..)
---    , raiseLabelRead
+    , getEntityLabel
     , YesodLPersist (..)
     , lDefaultRunDB
     , ProtectedEntity(..)
@@ -139,6 +139,7 @@ updateToFields :: forall l e . (LPersistEntity l e) => Update e -> [Entity e -> 
 updateToFields (Update field _ _) = map lPersistFieldLabel $ lPersistReadLabelDependencies field
 updateToFields (BackendUpdate _) = error "updateToFields: Unsupported backend specific update."
 
+-- | Gets the join of all the fields of an `Entity`.
 getEntityLabel :: LEntity l e => Entity e -> l
 getEntityLabel = joinLabels . getFieldLabels
 
