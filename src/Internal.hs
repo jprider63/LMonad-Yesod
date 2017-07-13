@@ -15,12 +15,13 @@ import Language.Haskell.TH (Name, mkName)
 import LMonad (Label(..))
 
 data LabelAnnotation = 
-    LAId
+    LABottom
+  | LAId
   | LAConst String
   | LAField String
+  | LAMeet LabelAnnotation LabelAnnotation
+  | LAJoin LabelAnnotation LabelAnnotation
     deriving (Show, Eq, Read, Ord)
-
-
 
 data LEntityDef = LEntityDef
     { lEntityHaskell :: !String
@@ -200,7 +201,7 @@ toLFieldDef f =
 -- K = A || K | A
 -- A = Id | Const name | Field name
 
-parseChevrons :: Text -> ([LabelAnnotation],[LabelAnnotation])
+parseChevrons :: Text -> (LabelAnnotation,LabelAnnotation)
 parseChevrons s = case parseOnly parseC s of
     Left err ->
         error $ "Could not parse labels in chevrons: " ++ err
@@ -215,21 +216,42 @@ parseChevrons s = case parseOnly parseC s of
             write <- parseL
             return (read,write)
 
-        parseL = (skipSpace >> char '_' >> return []) <|> parseK
-        
-        parseK = do
+        parseL = (skipSpace >> char '_' >> return LABottom) <|> parseJ
+
+        parseJ = do
+            lm <- parseM
+            tail <- (do
+                skipSpace
+                _ <- char '\\'
+                _ <- char '/'
+                parseJ
+              ) <|> (return lm)
+
+            return $ LAJoin lm tail
+
+        parseM = do
             la <- parseA
             tail <- (do
                 skipSpace
-                _ <- char '|'
-                _ <- char '|'
-                parseK
-              ) <|> (return [])
+                _ <- char '/'
+                _ <- char '\\'
+                parseM
+              ) <|> (return la)
 
-            return $ la:tail
+            return $ LAMeet la tail
 
         parseA = do
             skipSpace
+            parseParens <|> parseTerm
+
+        parseParens = do
+            _ <- char '('
+            j <- parseJ
+            skipSpace
+            _ <- char ')'
+            return j
+
+        parseTerm = do
             constr <- takeAlphaNum
             case constr of
                 "Id" -> 
