@@ -20,6 +20,8 @@ data LabelAnnotation =
   | LAField String
     deriving (Show, Eq, Read, Ord)
 
+
+
 data LEntityDef = LEntityDef
     { lEntityHaskell :: !String
 --     , lEntityDB      :: !String
@@ -32,6 +34,7 @@ data LEntityDef = LEntityDef
 --     , lEntityExtra   :: !(Map Text [ExtraLine])
 --     , lEntitySum     :: !Bool
     , lEntityLabelAnnotations :: !([LabelAnnotation],[LabelAnnotation])
+    , lEntityUniqueFieldLabelsAnnotations :: !UniqueLabels
     }
     deriving (Show, Eq, Read, Ord)
 
@@ -72,11 +75,13 @@ attrsToLabel attrs validator =
 
 toLEntityDef :: EntityDef -> LEntityDef
 toLEntityDef ent = 
+    let fields = fmap toLFieldDef (entityFields ent) in
     let def = LEntityDef {
         lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
 --      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
-      , lEntityFields = Map.fromList $ map toLFieldDef (entityFields ent)
+      , lEntityFields = Map.fromList fields
       , lEntityLabelAnnotations = labels
+      , lEntityUniqueFieldLabelsAnnotations = lFieldsUniqueLabels fields
     }
     in
     case checkReadLabelIsBottom def of
@@ -252,12 +257,12 @@ getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
 readLabelIsBottom ([], _) = True
 readLabelIsBottom _ = False
 
-lEntityFieldsList :: LEntityDef -> [LFieldDef]
-lEntityFieldsList = Map.elems . lEntityFields
+-- lEntityFieldsList :: LEntityDef -> [LFieldDef]
+-- lEntityFieldsList = Map.elems . lEntityFields
 
-lEntityUniqueLabels :: LEntityDef -> UniqueLabels
-lEntityUniqueLabels ent =
-    let (r, w) = unzip $ fmap lFieldLabelAnnotations $ lEntityFieldsList ent in
+lFieldsUniqueLabels :: [(String, LFieldDef)] -> UniqueLabels
+lFieldsUniqueLabels fields =
+    let (r, w) = unzip $ fmap (lFieldLabelAnnotations . snd) fields in
     (List.nub r, List.nub w) -- , List.nub c)
 
 lNameHelper' :: String -> [LabelAnnotation] -> String
