@@ -34,12 +34,12 @@ data LEntityDef = LEntityDef
 --     , lEntityDerives :: ![Text]
 --     , lEntityExtra   :: !(Map Text [ExtraLine])
 --     , lEntitySum     :: !Bool
-    , lEntityLabelAnnotations :: !([LabelAnnotation],[LabelAnnotation])
+    , lEntityLabelAnnotations :: !(LabelAnnotation,LabelAnnotation)
     , lEntityUniqueFieldLabelsAnnotations :: !UniqueLabels
     }
     deriving (Show, Eq, Read, Ord)
 
-type UniqueLabels = ([[LabelAnnotation]], [[LabelAnnotation]]) -- , [[LabelAnnotation]])
+type UniqueLabels = [(LabelAnnotation, LabelAnnotation)] -- , [[LabelAnnotation]])
 
 data LFieldDef = LFieldDef
     { lFieldHaskell   :: !String -- ^ name of the field
@@ -49,7 +49,7 @@ data LFieldDef = LFieldDef
 --    , lFieldAttrs     :: ![Attr]    -- ^ user annotations for a field
     , lFieldStrict    :: !Bool      -- ^ a strict field in the data type. Default: true
 --    , lFieldReference :: !ReferenceDef
-    , lFieldLabelAnnotations :: !([LabelAnnotation],[LabelAnnotation]) -- ,[LabelAnnotation])
+    , lFieldLabelAnnotations :: !(LabelAnnotation,LabelAnnotation) -- ,[LabelAnnotation])
     }
     deriving (Show, Eq, Read, Ord)
 
@@ -71,8 +71,19 @@ attrsToLabel attrs validator =
          ) Nothing attrs
     in
     case labels of
-        Nothing -> ([],[])
-        Just (read, write) -> (List.sort read, List.sort write)
+        Nothing -> defaultLabel
+        Just (read, write) -> (canonicalOrder read, canonicalOrder write)
+
+    where
+        defaultLabel = (LABottom,LABottom)
+
+        canonicalOrder l@LABottom = l
+        canonicalOrder l@LAId = l
+        canonicalOrder l@(LAConst _) = l
+        canonicalOrder l@(LAField _) = l
+        canonicalOrder (LAMeet a b) = LAMeet (min a b) (max a b)
+        canonicalOrder (LAJoin a b) = LAMeet (min a b) (max a b)
+
 
 toLEntityDef :: EntityDef -> LEntityDef
 toLEntityDef ent = 
@@ -95,18 +106,26 @@ toLEntityDef ent =
         -- JP: Do we need to sort the labels?
         labels = 
             let attrs = entityAttrs ent in
-            attrsToLabel attrs $ \l@(_, createLabels) -> 
-                -- Check that create does not have id.
-                if createContainsId createLabels then
-                    error $ "Field `" ++ (Text.unpack $ unHaskellName $ entityHaskell ent) ++ "` cannot have label `Id` in the create annotation."
+            attrsToLabel attrs $ \l@(readSide, writeSide) -> 
+                -- Check that table label does not have id.
+                if containsIdOrField readSide || containsIdOrField writeSide then
+                    error $ "Entity `" ++ (Text.unpack $ unHaskellName $ entityHaskell ent) ++ "` cannot have label `Id` in the create annotation."
                 else
                     l
             
                 -- TODO: Maybe also no field??
 
-        createContainsId [] = False
-        createContainsId (LAId:_) = True
-        createContainsId (_:t) = createContainsId t
+        -- Don't allow Id or Field in table labels.
+        containsIdOrField LAId = True
+        containsIdOrField LABottom = False
+        containsIdOrField (LAConst _) = False
+        containsIdOrField (LAField _) = True
+        containsIdOrField (LAMeet a b) = containsIdOrField a || containsIdOrField b
+        containsIdOrField (LAJoin a b) = containsIdOrField a || containsIdOrField b
+
+        -- createContainsId [] = False
+        -- createContainsId (LAId:_) = True
+        -- createContainsId (_:t) = createContainsId t
 
 -- Returns an error message if a read label is not bottom.
 checkReadLabelIsBottom :: LEntityDef -> Maybe String
@@ -116,18 +135,26 @@ checkReadLabelIsBottom def = foldr helper Nothing fields
 
         helper _ e@(Just _) = e
         helper field Nothing = 
-            let (readLabels, _) = lFieldLabelAnnotations field in
-            foldr (helper' $ lFieldHaskell field) Nothing readLabels
+            let (readLabel, writeLabel) = lFieldLabelAnnotations field in
+            let fName = lFieldHaskell field in
+            helper' fName readLabel <|> helper' fName writeLabel
 
-        helper' _ _ e@(Just _) = e
-        helper' _ LAId Nothing = Nothing
-        helper' _ (LAConst _) Nothing = Nothing
-        helper' origName (LAField name) Nothing = case Map.lookup name fields of
+        helper' _ LAId = Nothing
+        helper' _ LABottom = Nothing
+        helper' _ (LAConst _) = Nothing
+        helper' n (LAJoin a b) = helper' n a <|> helper' n b
+        helper' n (LAMeet a b) = helper' n a <|> helper' n b
+        helper' origName (LAField name) = case Map.lookup name fields of
             Nothing -> 
                 error "checkReadLabelIsBottom: unreachable"
             Just field -> case lFieldLabelAnnotations field of
-                ([],_) -> Nothing
-                _ -> Just $ "The read label of `" ++ lEntityHaskell def ++ "." ++ name ++ "` must be bottom (_) since it is part of `" ++ origName ++ "`'s read label."
+                (LABottom,_) -> Nothing
+                _ -> Just $ "The read label of `" ++ lEntityHaskell def ++ "." ++ name ++ "` must be bottom (_) since it is part of `" ++ origName ++ "`'s label."
+
+-- TODO: What about integrity labels??? XXX
+
+
+
 
 --     where
 --         lookupField fields name = 
@@ -276,45 +303,55 @@ getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
     Just def ->
         def
 
-readLabelIsBottom ([], _) = True
-readLabelIsBottom _ = False
+-- readLabelIsBottom ([], _) = True
+-- readLabelIsBottom _ = False
 
 -- lEntityFieldsList :: LEntityDef -> [LFieldDef]
 -- lEntityFieldsList = Map.elems . lEntityFields
 
 lFieldsUniqueLabels :: [(String, LFieldDef)] -> UniqueLabels
 lFieldsUniqueLabels fields =
-    let (r, w) = unzip $ fmap (lFieldLabelAnnotations . snd) fields in
-    (List.nub r, List.nub w) -- , List.nub c)
+    List.nub $ fmap (lFieldLabelAnnotations . snd) fields
 
-lNameHelper' :: String -> [LabelAnnotation] -> String
-lNameHelper' prefix [] = prefix ++ "Bottom"
-lNameHelper' prefix anns = prefix ++ List.intercalate "GLB" (map toName anns)
+lNameHelper' :: String -> LabelAnnotation -> String
+lNameHelper' prefix la = prefix ++ toName la
     where
+        toName LABottom = "Bottom"
         toName LAId = "Id"
-        toName (LAConst c) = c
-        toName (LAField f) = f
+        toName (LAConst c) = "C" ++ c
+        toName (LAField f) = "F" ++ f
+        toName (LAJoin a b) = "JL" ++ toName a ++ "W" ++ toName b ++ "JR"
+        toName (LAMeet a b) = "ML" ++ toName a ++ "W" ++ toName b ++ "MR"
 
-lFieldReadLabelName' :: String -> [LabelAnnotation] -> Name
-lFieldReadLabelName' eName anns = mkName $ ( lNameHelper' ( "readLabel" ++ eName) anns) ++ "'"
+lFieldLabelName' :: String -> LabelAnnotation -> Name
+lFieldLabelName' eName anns = mkName $ ( lNameHelper' ( "label" ++ eName) anns) ++ "'"
 
-lFieldWriteLabelName' :: String -> [LabelAnnotation] -> Name
-lFieldWriteLabelName' eName anns = mkName $ ( lNameHelper' ( "writeLabel" ++ eName) anns) ++ "'"
+-- lFieldReadLabelName' :: String -> [LabelAnnotation] -> Name
+-- lFieldReadLabelName' eName anns = mkName $ ( lNameHelper' ( "readLabel" ++ eName) anns) ++ "'"
+-- 
+-- lFieldWriteLabelName' :: String -> [LabelAnnotation] -> Name
+-- lFieldWriteLabelName' eName anns = mkName $ ( lNameHelper' ( "writeLabel" ++ eName) anns) ++ "'"
+-- 
+-- lFieldCreateLabelName' :: String -> [LabelAnnotation] -> Name
+-- lFieldCreateLabelName' eName anns = mkName $ ( lNameHelper' ( "createLabel" ++ eName) anns) ++ "'"
 
-lFieldCreateLabelName' :: String -> [LabelAnnotation] -> Name
-lFieldCreateLabelName' eName anns = mkName $ ( lNameHelper' ( "createLabel" ++ eName) anns) ++ "'"
+lFieldLabelVarName :: String -> LabelAnnotation -> Name
+lFieldLabelVarName eName = mkName . lNameHelper' ( "_label" ++ eName)
 
-lFieldReadLabelVarName :: String -> [LabelAnnotation] -> Name
-lFieldReadLabelVarName eName = mkName . lNameHelper' ( "_readLabel" ++ eName)
+-- lFieldReadLabelVarName :: String -> [LabelAnnotation] -> Name
+-- lFieldReadLabelVarName eName = mkName . lNameHelper' ( "_readLabel" ++ eName)
 
-lFieldReadLabelName :: String -> [LabelAnnotation] -> Name
-lFieldReadLabelName eName = mkName . lNameHelper' ( "readLabel" ++ eName)
+lFieldLabelName :: String -> LabelAnnotation -> Name
+lFieldLabelName eName = mkName . lNameHelper' ( "label" ++ eName)
 
-lFieldWriteLabelName :: String -> [LabelAnnotation] -> Name
-lFieldWriteLabelName eName = mkName . lNameHelper' ( "writeLabel" ++ eName)
-
-lFieldCreateLabelName :: String -> [LabelAnnotation] -> Name
-lFieldCreateLabelName eName = mkName . lNameHelper' ( "createLabel" ++ eName)
+-- lFieldReadLabelName :: String -> [LabelAnnotation] -> Name
+-- lFieldReadLabelName eName = mkName . lNameHelper' ( "readLabel" ++ eName)
+-- 
+-- lFieldWriteLabelName :: String -> [LabelAnnotation] -> Name
+-- lFieldWriteLabelName eName = mkName . lNameHelper' ( "writeLabel" ++ eName)
+-- 
+-- lFieldCreateLabelName :: String -> [LabelAnnotation] -> Name
+-- lFieldCreateLabelName eName = mkName . lNameHelper' ( "createLabel" ++ eName)
 
 joinLabels :: Label l => [l] -> l
 joinLabels [] = bottom
