@@ -303,8 +303,8 @@ getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
     Just def ->
         def
 
--- readLabelIsBottom ([], _) = True
--- readLabelIsBottom _ = False
+labelIsBottom (LABottom, LABottom) = True
+labelIsBottom _ = False
 
 -- lEntityFieldsList :: LEntityDef -> [LFieldDef]
 -- lEntityFieldsList = Map.elems . lEntityFields

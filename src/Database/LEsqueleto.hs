@@ -673,3 +673,4 @@ lsqlHelper' ents = QuasiQuoter {
         generateSql' e s = do
             res <- generateSql e s
             error $ pprint res
+

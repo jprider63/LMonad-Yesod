@@ -6,6 +6,7 @@ import Control.Monad
 import qualified Data.Char as Char
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
+import Data.Proxy (Proxy(..))
 import qualified Data.Text as Text
 import Database.Persist.Types
 import Language.Haskell.TH
@@ -82,7 +83,7 @@ mkProtectedEntity labelType ent =
             let strict = if lFieldStrict field then IsStrict else NotStrict in
             let rawType = fieldTypeToType $ lFieldType field in
             let typ = 
-                  if readLabelIsBottom $ lFieldLabelAnnotations field then
+                  if labelIsBottom $ lFieldLabelAnnotations field then
                     rawType
                   else
                     AppT (AppT (ConT (mkName "Labeled")) labelType) rawType
@@ -97,7 +98,7 @@ mkProtectedEntity labelType ent =
 -- instance LEntity (DCLabel Principal) User where
 --     getFieldLabels _e = [bottom, labelUserUser _e]
 --     tableLabel Proxy = bottom
---
+
 --
 --
 --     getReadLabels _e = 
@@ -110,16 +111,24 @@ mkProtectedEntity labelType ent =
 mkLEntityInstance :: Type -> LEntityDef -> Q Dec
 mkLEntityInstance labelType ent = --, createLabels)) = 
 
-    let (readLabels, writeLabels) = lEntityUniqueFieldLabelsAnnotations ent in
-    let rExpr = ListE $ map (mkExpr lFieldReadLabelName) readLabels in
-    let wExpr = ListE $ map (mkExpr lFieldWriteLabelName) writeLabels in
+    -- let (readLabels, writeLabels) = lEntityUniqueFieldLabelsAnnotations ent in
+    -- let rExpr = ListE $ map (mkExpr lFieldReadLabelName) readLabels in
+    -- let wExpr = ListE $ map (mkExpr lFieldWriteLabelName) writeLabels in
     -- let cExpr = ListE $ map (mkExpr lFieldCreateLabelName) createLabels in
+
+    let fLabels = lEntityUniqueFieldLabelsAnnotations ent in
+    let fExpr = ListE $ map (mkExpr lFieldLabelName) fLabels in
+
+    let tLabel = lEntityLabelAnnotations ent in
+    let tExpr = mkExpr lFieldLabelName tLabel in
 
     let pat = VarP e in
     let funcs = [
-            FunD (mkName "getReadLabels") [Clause [pat] (NormalB rExpr) []]
-          , FunD (mkName "getWriteLabels") [Clause [pat] (NormalB wExpr) []]
-            -- , FunD (mkName "getCreateLabels") [Clause [pat] (NormalB cExpr) []]
+            FunD 'getFieldLabels [Clause [pat] (NormalB fExpr) []]
+          , FunD 'tableLabel [Clause [VarP 'Proxy] (NormalB tExpr) []]
+          --   FunD (mkName "getReadLabels") [Clause [pat] (NormalB rExpr) []]
+          -- , FunD (mkName "getWriteLabels") [Clause [pat] (NormalB wExpr) []]
+          -- , FunD (mkName "getCreateLabels") [Clause [pat] (NormalB cExpr) []]
           ]
     in
     return $ InstanceD [] (AppT (AppT (ConT ''LEntity) labelType) (ConT (mkName eName))) funcs
@@ -127,6 +136,12 @@ mkLEntityInstance labelType ent = --, createLabels)) =
     where
         eName = lEntityHaskell ent
         e = mkName "_entity"
+
+        -- mkExpr (read, write) = 
+        --     let r = mkLabel read in
+        --     let w = mkLabel write in
+        --     -- JP: Join to combine left and right halves?..
+        --     AppE (AppE (VarE 'lub) r) w
 
         mkExpr nameF anns = 
             let fName = nameF eName anns in
