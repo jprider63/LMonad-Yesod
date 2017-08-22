@@ -358,3 +358,17 @@ joinLabels [] = bottom
 joinLabels [l] = l
 joinLabels (h:t) = h `lub` joinLabels t
 
+lFieldLabelArguments :: LabelAnnotation -> [LabelAnnotation]
+lFieldLabelArguments la = 
+    let leaves = labelAnnotationLeaves la in
+    List.sort $ List.nub leaves
+
+    where
+        labelAnnotationLeaves :: LabelAnnotation -> [LabelAnnotation]
+        labelAnnotationLeaves LABottom = [LABottom]
+        labelAnnotationLeaves LAId = [LAId]
+        labelAnnotationLeaves l@(LAConst _) = [l]
+        labelAnnotationLeaves l@(LAField _) = [l]
+        labelAnnotationLeaves (LAMeet l1 l2) = labelAnnotationLeaves l1 ++ labelAnnotationLeaves l2
+        labelAnnotationLeaves (LAJoin l1 l2) = labelAnnotationLeaves l1 ++ labelAnnotationLeaves l2
+

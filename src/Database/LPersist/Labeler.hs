@@ -225,20 +225,29 @@ mkLEntityInstance labelType ent =
 
 mkLabelEntity :: Type -> LEntityDef -> [Dec]
 mkLabelEntity labelType ent = -- , createLabels)) = 
-    let (readLabels, writeLabels) = lEntityUniqueFieldLabelsAnnotations ent in
-    let readD = map (mkLabelField lFieldReadLabelName lFieldReadLabelName') readLabels in
-    let writeD = map (mkLabelField lFieldWriteLabelName lFieldWriteLabelName') writeLabels in
-    -- let createD = map (mkLabelField' lFieldCreateLabelName lFieldCreateLabelName') createLabels in
-    concat $ readD ++ writeD -- ++ createD
+    let labels = lEntityUniqueFieldLabelsAnnotations ent in
+
+    let labelsD = map mkLabelField labels in
+
+    concat labelsD
+
+
+
+    -- let (readLabels, writeLabels) = lEntityUniqueFieldLabelsAnnotations ent in
+    -- let readD = map (mkLabelField lFieldReadLabelName lFieldReadLabelName') readLabels in
+    -- let writeD = map (mkLabelField lFieldWriteLabelName lFieldWriteLabelName') writeLabels in
+    -- -- let createD = map (mkLabelField' lFieldCreateLabelName lFieldCreateLabelName') createLabels in
+    -- concat $ readD ++ writeD -- ++ createD
     
     where
         eName = lEntityHaskell ent
         eId = mkName "_eId"
         e = mkName "_entity"
         typ = AppT (AppT ArrowT (AppT (ConT (mkName "Entity")) (ConT (mkName eName)))) labelType
-        typ' = AppT (AppT ArrowT (ConT (mkName eName))) labelType
+        -- typ' = AppT (AppT ArrowT (ConT (mkName eName))) labelType
 
-        mkBody fName' anns = 
+        mkBody anns = 
+            let args = lFieldLabelArguments anns in
             let helper annotation acc = case annotation of
                   LAConst _ ->
                     acc
@@ -248,18 +257,18 @@ mkLabelEntity labelType ent = -- , createLabels)) =
                     let f = mkName $ headToLower eName ++ headToUpper s in
                     AppE acc (AppE (VarE f) (VarE e))
             in
-            foldr helper (VarE $ fName' eName anns) anns
+            foldr helper (VarE $ lFieldLabelName' eName anns) args
 
-        mkLabelField' fName fName' anns = 
-            let name = fName eName anns in
-            let sig = SigD name typ' in
-            let def = FunD name [Clause [VarP e] (NormalB $ mkBody fName' anns) []] in
-            [sig, def]
+        -- mkLabelField' anns = 
+        --     let name = lFieldLabelName eName anns in
+        --     let sig = SigD name typ' in
+        --     let def = FunD name [Clause [VarP e] (NormalB $ mkBody anns) []] in
+        --     [sig, def]
 
-        mkLabelField fName fName' anns = 
-            let name = fName eName anns in
+        mkLabelField anns = 
+            let name = lFieldLabelName eName anns in
             let sig = SigD name typ in
-            let def = FunD name [Clause [ConP 'Entity [VarP eId, VarP e]] (NormalB $ mkBody fName' anns) []] in
+            let def = FunD name [Clause [ConP 'Entity [VarP eId, VarP e]] (NormalB $ mkBody anns) []] in
             [sig, def]
 
 -- | Similar to mkLabelEntity, except this function creates code that returns the labels given what the label depends on instead of the entire entity. 
