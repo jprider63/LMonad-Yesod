@@ -117,10 +117,10 @@ mkLEntityInstance labelType ent = --, createLabels)) =
     -- let cExpr = ListE $ map (mkExpr lFieldCreateLabelName) createLabels in
 
     let fLabels = lEntityUniqueFieldLabelsAnnotations ent in
-    let fExpr = ListE $ map (mkExpr lFieldLabelName) fLabels in
+    let fExpr = ListE $ map mkExpr fLabels in
 
     let tLabel = lEntityLabelAnnotations ent in
-    let tExpr = mkExpr lFieldLabelName tLabel in
+    let tExpr = mkExpr tLabel in
 
     let pat = VarP e in
     let funcs = [
@@ -143,8 +143,8 @@ mkLEntityInstance labelType ent = --, createLabels)) =
         --     -- JP: Join to combine left and right halves?..
         --     AppE (AppE (VarE 'lub) r) w
 
-        mkExpr nameF anns = 
-            let fName = nameF eName anns in
+        mkExpr anns = 
+            let fName = lFieldLabelName eName anns in
             AppE (VarE fName) (VarE e)
 
         -- mkExpr nameF anns = 
@@ -256,6 +256,11 @@ mkLabelEntity labelType ent = -- , createLabels)) =
                   LAField s ->
                     let f = mkName $ headToLower eName ++ headToUpper s in
                     AppE acc (AppE (VarE f) (VarE e))
+                  LAMeet _ _ ->
+                    error "mkLabelEntity: Should not depend on meet."
+                  LAJoin _ _ ->
+                    error "mkLabelEntity: Should not depend on join."
+                  
             in
             foldr helper (VarE $ lFieldLabelName' eName anns) args
 
@@ -280,11 +285,18 @@ mkLabelEntity labelType ent = -- , createLabels)) =
 --
 mkLabelEntity' :: Type -> LEntityDef -> [Dec]
 mkLabelEntity' labelType ent = -- , createLabels)) = 
-    let (readLabels, writeLabels) = lEntityUniqueFieldLabelsAnnotations ent in
-    let readD = map (mkLabelField' lFieldReadLabelName' toConfLabel) readLabels in
-    let writeD = map (mkLabelField' lFieldWriteLabelName' toIntegLabel) writeLabels in
-    -- let createD = map (mkLabelField' lFieldCreateLabelName' toIntegLabel) createLabels in
-    concat $ readD ++ writeD -- ++ createD
+    let labels' = lEntityUniqueFieldLabelsAnnotations ent in
+
+    let labelsD' = map mkLabelField' labels' in
+
+    concat labelsD'
+
+
+--     let (readLabels, writeLabels) = lEntityUniqueFieldLabelsAnnotations ent in
+--     let readD = map (mkLabelField' lFieldReadLabelName' toConfLabel) readLabels in
+--     let writeD = map (mkLabelField' lFieldWriteLabelName' toIntegLabel) writeLabels in
+--     -- let createD = map (mkLabelField' lFieldCreateLabelName' toIntegLabel) createLabels in
+--     concat $ readD ++ writeD -- ++ createD
 
     where
         eName = lEntityHaskell ent
@@ -292,6 +304,7 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
         toIntegLabel = VarE $ mkName "toIntegrityLabel"
         bottom = VarE $ mkName "bottom"
         appMeet = AppE . (AppE (VarE (mkName "glb")))
+        appJoin = AppE . (AppE (VarE (mkName "lub")))
 
         mkType =
             let helper annotation acc = case annotation of
@@ -317,24 +330,27 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
             in
             List.foldr helper []
 
-        mkBody f anns = case anns of
-            [] -> 
-                bottom
-            h:t -> 
-                let appF ann = case ann of
-                      LAId ->
-                        AppE f $ VarE $ mkName "_id"
-                      LAConst c ->
-                        AppE f $ SigE (LitE $ StringL c) $ ConT $ mkName "String"
-                      LAField fName ->
-                        AppE f $ VarE $ mkName $ "_" ++ fName
-                in
-                List.foldl' (\acc ann -> appMeet acc $ appF ann) (appF h) t
+        mkBody (c, i) = 
+            let appF f ann = case ann of
+                  LAId ->
+                    AppE f $ VarE $ mkName "_id"
+                  LAConst c ->
+                    AppE f $ SigE (LitE $ StringL c) $ ConT $ mkName "String"
+                  LAField fName ->
+                    AppE f $ VarE $ mkName $ "_" ++ fName
+                  LAJoin a b ->
+                    appJoin (appF f a) $ appF f b
+                  LAMeet a b ->
+                    appMeet (appF f a) $ appF f b
+            in
+            appJoin (appF toConfLabel c) (appF toIntegLabel i)
+            -- List.foldl' (\acc ann -> appMeet acc $ appF ann) (appF h) t
 
-        mkLabelField' nameF labelF anns = 
-            let name = nameF eName anns in
-            let sig = SigD name $ mkType anns in
-            let def = FunD name [Clause (mkPattern anns) (NormalB $ mkBody labelF anns) []] in
+        mkLabelField' anns = 
+            let args = lFieldLabelArguments anns in
+            let name = lFieldLabelName' eName anns in
+            let sig = SigD name $ mkType args in
+            let def = FunD name [Clause (mkPattern args) (NormalB $ mkBody anns) []] in
             [sig, def]
 
 {-
@@ -414,6 +430,23 @@ mkLabelEntity' labelType ent =
             [readSig, readDef, writeSig, writeDef, createSig, createDef]
 -}
 
+-- | Create ProtectedEntity instance for given entity.
+-- Ex:
+--
+-- instance ProtectedEntity (DCLabel Principal) User ProtectedUser where
+--     toProtected _entity@(Entity _eId _e) = do
+--         let _readLabelUserAdminGLBemail = readLabelUserAdminGLBemail
+--         let ident = userIdent _e
+--         let password = userPassword _e
+--         let email = Labeled _readLabelUserAdminGLBemail (userEmail _e)
+--         let admin = userAdmin _e
+--         return $ ProtectedUser ident password email admin
+
+mkProtectedEntityInstance :: Type -> LEntityDef -> Q [Dec]
+mkProtectedEntityInstance labelType ent = do
+    undefined
+
+{-
 
 -- | Create ProtectedEntity instance for given entity.
 -- Ex:
@@ -467,7 +500,7 @@ mkProtectedEntityInstance labelType ent = do
                     return $ LetS [ValD (VarP vName) (NormalB (AppE (AppE (ConE 'Labeled) (VarE lName)) (AppE (VarE getter) (VarE e)))) []]
                     
             return ( (newS:sAcc), (newF:fAcc))
-
+-}
 
 
 fieldTypeToType :: FieldType -> Type
@@ -484,4 +517,5 @@ getLEntityFieldType :: LEntityDef -> String -> Type
 getLEntityFieldType ent fName = 
     let def = getLEntityFieldDef ent fName in
     fieldTypeToType $ lFieldType $ def
+
 

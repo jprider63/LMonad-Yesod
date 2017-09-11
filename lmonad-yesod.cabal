@@ -78,6 +78,7 @@ library
     , blaze-markup
     , containers
     , esqueleto
+    , hashable
     , haskell-src-meta
     , lifted-base
     , lmonad

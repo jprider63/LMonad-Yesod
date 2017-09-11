@@ -1,16 +1,18 @@
-{-# LANGUAGE TemplateHaskell, OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell, OverloadedStrings, DeriveGeneric #-}
 
 module Internal where
 
 import Control.Applicative
 import Data.Attoparsec.Text
 import qualified Data.Char as Char
+-- import Data.Hashable
 import qualified Data.List as List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Database.Persist.Types
+import GHC.Generics (Generic)
 import Language.Haskell.TH (Name, mkName)
 import LMonad (Label(..))
 
@@ -21,7 +23,9 @@ data LabelAnnotation =
   | LAField String
   | LAMeet LabelAnnotation LabelAnnotation
   | LAJoin LabelAnnotation LabelAnnotation
-    deriving (Show, Eq, Read, Ord)
+    deriving (Show, Eq, Read, Ord, Generic)
+
+-- instance Hashable LabelAnnotation
 
 data LEntityDef = LEntityDef
     { lEntityHaskell :: !String
@@ -313,8 +317,8 @@ lFieldsUniqueLabels :: [(String, LFieldDef)] -> UniqueLabels
 lFieldsUniqueLabels fields =
     List.nub $ fmap (lFieldLabelAnnotations . snd) fields
 
-lNameHelper' :: String -> LabelAnnotation -> String
-lNameHelper' prefix la = prefix ++ toName la
+lNameHelper' :: String -> (LabelAnnotation, LabelAnnotation) -> String
+lNameHelper' prefix (la, lb) = prefix ++ toName la ++ toName lb
     where
         toName LABottom = "Bottom"
         toName LAId = "Id"
@@ -323,7 +327,7 @@ lNameHelper' prefix la = prefix ++ toName la
         toName (LAJoin a b) = "JL" ++ toName a ++ "W" ++ toName b ++ "JR"
         toName (LAMeet a b) = "ML" ++ toName a ++ "W" ++ toName b ++ "MR"
 
-lFieldLabelName' :: String -> LabelAnnotation -> Name
+lFieldLabelName' :: String -> (LabelAnnotation, LabelAnnotation) -> Name
 lFieldLabelName' eName anns = mkName $ ( lNameHelper' ( "label" ++ eName) anns) ++ "'"
 
 -- lFieldReadLabelName' :: String -> [LabelAnnotation] -> Name
@@ -335,13 +339,13 @@ lFieldLabelName' eName anns = mkName $ ( lNameHelper' ( "label" ++ eName) anns) 
 -- lFieldCreateLabelName' :: String -> [LabelAnnotation] -> Name
 -- lFieldCreateLabelName' eName anns = mkName $ ( lNameHelper' ( "createLabel" ++ eName) anns) ++ "'"
 
-lFieldLabelVarName :: String -> LabelAnnotation -> Name
+lFieldLabelVarName :: String -> (LabelAnnotation, LabelAnnotation) -> Name
 lFieldLabelVarName eName = mkName . lNameHelper' ( "_label" ++ eName)
 
 -- lFieldReadLabelVarName :: String -> [LabelAnnotation] -> Name
 -- lFieldReadLabelVarName eName = mkName . lNameHelper' ( "_readLabel" ++ eName)
 
-lFieldLabelName :: String -> LabelAnnotation -> Name
+lFieldLabelName :: String -> (LabelAnnotation, LabelAnnotation) -> Name
 lFieldLabelName eName = mkName . lNameHelper' ( "label" ++ eName)
 
 -- lFieldReadLabelName :: String -> [LabelAnnotation] -> Name
@@ -358,9 +362,9 @@ joinLabels [] = bottom
 joinLabels [l] = l
 joinLabels (h:t) = h `lub` joinLabels t
 
-lFieldLabelArguments :: LabelAnnotation -> [LabelAnnotation]
-lFieldLabelArguments la = 
-    let leaves = labelAnnotationLeaves la in
+lFieldLabelArguments :: (LabelAnnotation, LabelAnnotation) -> [LabelAnnotation]
+lFieldLabelArguments (la, lb) = 
+    let leaves = labelAnnotationLeaves la ++ labelAnnotationLeaves lb in
     List.sort $ List.nub leaves
 
     where
