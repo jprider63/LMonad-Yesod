@@ -231,7 +231,7 @@ generateSql lEntityDefs s =
                                             let vName = varNameTableFieldP table field in
                                             let lName = mkName "_protected_label" in
                                             let lDec = ValD (VarP lName) (NormalB label) [] in
-                                            BindS (VarP vName) $ LetE [lDec] $ AppE (AppE (VarE 'toLabeledTCB) (VarE lName)) $ DoE [
+                                            BindS (VarP vName) $ LetE [lDec] $ AppE (AppE (VarE 'toLabeled) (VarE lName)) $ DoE [
                                                     NoBindS $ AppE (VarE 'taintLabel) (VarE lName),
                                                     NoBindS $ AppE (VarE 'return) (VarE $ varNameTableField table field)
                                                 ]

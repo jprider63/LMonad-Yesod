@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, OverloadedStrings #-}
 
-module Database.LPersist.Labeler (mkLabels, mkLabels') where
+module Database.LPersist.Labeler (mkLabelsWithDefault, mkLabelsWithDefault') where
 
 import Control.Monad
 import qualified Data.Char as Char
@@ -29,8 +29,11 @@ import LMonad.TCB
 --       deriving Typeable
 
 mkLabels :: String -> [EntityDef] -> Q [Dec]
-mkLabels labelS ents = do
-    let entsL = map toLEntityDef ents
+mkLabels labelS ents = mkLabelsWithDefault labelS (LABottom, LABottom) ents
+
+mkLabelsWithDefault :: String -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
+mkLabelsWithDefault labelS defaultLabel ents = do
+    let entsL = map (toLEntityDef defaultLabel) ents
     let labelFs' = concat $ map (mkLabelEntity' labelType) entsL
     let labelFs = concat $ map (mkLabelEntity labelType) entsL
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
@@ -55,8 +58,11 @@ mkLabels labelS ents = do
 
 -- | Helper function that prints out the code generated at compilation.
 mkLabels' :: String -> [EntityDef] -> Q [Dec]
-mkLabels' labelS ents = do
-    labels <- mkLabels labelS ents
+mkLabels' labelS ents = mkLabelsWithDefault' labelS (LABottom, LABottom) ents
+
+mkLabelsWithDefault' :: String -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
+mkLabelsWithDefault' labelS defaultLabel ents = do
+    labels <- mkLabelsWithDefault labelS defaultLabel ents
     fail $ show $ pprint labels
 
 
@@ -302,7 +308,7 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
         eName = lEntityHaskell ent
         toConfLabel = VarE $ mkName "toConfidentialityLabel"
         toIntegLabel = VarE $ mkName "toIntegrityLabel"
-        bottom = VarE $ mkName "bottom"
+        -- bottom = VarE $ mkName "bottom"
         appMeet = AppE . (AppE (VarE (mkName "glb")))
         appJoin = AppE . (AppE (VarE (mkName "lub")))
 

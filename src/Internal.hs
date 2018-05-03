@@ -65,7 +65,8 @@ headToLower :: String -> String
 headToLower (h:t) = (Char.toLower h):t
 headToLower s = error $ "Invalid name `" ++ s ++ "`"
 
-attrsToLabel attrs validator = 
+attrsToLabel :: [Attr] -> (LabelAnnotation, LabelAnnotation) -> ((LabelAnnotation, LabelAnnotation) -> (LabelAnnotation, LabelAnnotation)) -> (LabelAnnotation, LabelAnnotation)
+attrsToLabel attrs defaultLabel validator = 
     let labels = List.foldl' (\acc attr ->
           let ( prefix, affix) = Text.splitAt 9 attr in
           if acc /= Nothing || prefix /= "chevrons=" then
@@ -79,8 +80,6 @@ attrsToLabel attrs validator =
         Just (read, write) -> (canonicalOrder read, canonicalOrder write)
 
     where
-        defaultLabel = (LABottom,LABottom)
-
         canonicalOrder l@LABottom = l
         canonicalOrder l@LAId = l
         canonicalOrder l@(LAConst _) = l
@@ -89,9 +88,9 @@ attrsToLabel attrs validator =
         canonicalOrder (LAJoin a b) = LAMeet (min a b) (max a b)
 
 
-toLEntityDef :: EntityDef -> LEntityDef
-toLEntityDef ent = 
-    let fields = fmap toLFieldDef (entityFields ent) in
+toLEntityDef :: (LabelAnnotation, LabelAnnotation) -> EntityDef -> LEntityDef
+toLEntityDef defaultLabel ent = 
+    let fields = fmap (toLFieldDef defaultLabel) (entityFields ent) in
     let def = LEntityDef {
         lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
 --      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
@@ -110,7 +109,7 @@ toLEntityDef ent =
         -- JP: Do we need to sort the labels?
         labels = 
             let attrs = entityAttrs ent in
-            attrsToLabel attrs $ \l@(readSide, writeSide) -> 
+            attrsToLabel attrs defaultLabel $ \l@(readSide, writeSide) -> 
                 -- Check that table label does not have id.
                 if containsIdOrField readSide || containsIdOrField writeSide then
                     error $ "Entity `" ++ (Text.unpack $ unHaskellName $ entityHaskell ent) ++ "` cannot have label `Id` in the create annotation."
@@ -196,8 +195,8 @@ checkReadLabelIsBottom def = foldr helper Nothing fields
 --         labelsContainsOption' fields (_:t) = labelsContainsOption' fields t
 
 
-toLFieldDef :: FieldDef -> (String, LFieldDef)
-toLFieldDef f = 
+toLFieldDef :: (LabelAnnotation, LabelAnnotation) -> FieldDef -> (String, LFieldDef)
+toLFieldDef defaultLabel f = 
     let def = LFieldDef {
         lFieldHaskell = fieldName
 --       , lFieldDB = Text.unpack $ unDBName $ fieldDB f
@@ -215,7 +214,7 @@ toLFieldDef f =
         --     Just (read, write) -> (List.sort read, List.sort write) -- , List.sort create)
         labels = 
             let attrs = fieldAttrs f in
-            attrsToLabel attrs id
+            attrsToLabel attrs defaultLabel id
 
         typ = if nullable (fieldAttrs f) then
                 FTApp (FTTypeCon Nothing "Maybe") $ fieldType f

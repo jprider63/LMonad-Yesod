@@ -80,6 +80,8 @@ lPersistWith ps = QuasiQuoter
     { quoteExp = parseReferences ps . pack
     }
 
+-- lPersistWith' :: Label l => PersistSettings -> l -> QuasiQuoter
+
 -- | Apply 'persistWith' to 'upperCaseSettings'.
 lPersistUpperCase :: QuasiQuoter
 lPersistUpperCase = lPersistWith upperCaseSettings
