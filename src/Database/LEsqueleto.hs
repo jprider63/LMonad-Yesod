@@ -524,19 +524,20 @@ generateSql lEntityDefs s =
             Field fieldS ->
                 let ent = getLTable tableS in -- Move this to TermTF? Or someplace earlier?
                 let field = getLTableField ent fieldS in
-                let dep = if not (isFieldLabeled ent field) then
-                        Nothing
-                      else
-                        let ( anns, _) = lFieldLabelAnnotations fieldDef in
-                        Just $ List.foldl' (\acc ann -> case ann of
-                            LAId ->
-                                ( tableS, "id"):acc
-                            LAConst _s ->
-                                acc
-                            LAField f -> 
-                                ( tableS, f):acc
-                          ) [] anns
-                in
+                let dep = lFieldLabelDependencies field in
+                -- let dep = if not (isFieldLabeled ent field) then
+                --         Nothing
+                --       else
+                --         let ( anns, _) = lFieldLabelAnnotations fieldDef in
+                --         Just $ List.foldl' (\acc ann -> case ann of
+                --             LAId ->
+                --                 ( tableS, "id"):acc
+                --             LAConst _s ->
+                --                 acc
+                --             LAField f -> 
+                --                 ( tableS, f):acc
+                --           ) [] anns
+                -- in
                 ReqField tableS fieldS returning dep
             FieldAll ->
                 let hasDeps = 

@@ -55,6 +55,7 @@ data LFieldDef = LFieldDef
     , lFieldStrict    :: !Bool      -- ^ a strict field in the data type. Default: true
 --    , lFieldReference :: !ReferenceDef
     , lFieldLabelAnnotations :: !(LabelAnnotation,LabelAnnotation) -- ,[LabelAnnotation])
+    , lFieldLabelDependencies :: ![String] -- Fields this field's label depends on. 
     }
     deriving (Show, Eq, Read, Ord)
 
@@ -211,11 +212,22 @@ toLFieldDef defaultLabel f =
       , lFieldType = typ
       , lFieldStrict = fieldStrict f
       , lFieldLabelAnnotations = labels
+      , lFieldLabelDependencies = dependencies
     }
     in
     ( fieldName, def)
 
     where
+        dependenciesHelper LAId acc = "id":acc
+        dependenciesHelper (LAField f) acc = f:acc
+        dependenciesHelper (LAConst _) acc = acc
+        dependenciesHelper LABottom acc = acc
+        dependenciesHelper (LAJoin a b) acc = dependenciesHelper a $ dependenciesHelper b acc
+        dependenciesHelper (LAMeet a b) acc = dependenciesHelper a $ dependenciesHelper b acc
+
+
+        dependencies = List.nub $ dependenciesHelper (snd labels) $ dependenciesHelper (fst labels) []
+
         fieldName = Text.unpack $ unHaskellName $ fieldHaskell f
         -- labels = case labels' of
         --     Nothing -> ([],[])
@@ -315,7 +327,7 @@ getLEntityFieldOrIdDef ent "id" =
     let tableS = lEntityHaskell ent in
     let tLabel = lEntityLabelAnnotations ent in
     let typ = FTTypeCon Nothing (Text.pack $ tableS ++ "Id") in
-    LFieldDef "id" typ True tLabel
+    LFieldDef "id" typ True tLabel []
 getLEntityFieldOrIdDef ent fName = getLEntityFieldDef ent fName
 
 getLEntityFieldDef :: LEntityDef -> String -> LFieldDef
