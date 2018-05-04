@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, OverloadedStrings #-}
 
-module Database.LPersist.Labeler (mkLabelsWithDefault, mkLabelsWithDefault') where
+module Database.LPersist.Labeler (mkLabels, mkLabels', mkLabelsWithDefault, mkLabelsWithDefault') where
 
 import Control.Monad
 import qualified Data.Char as Char
@@ -22,7 +22,7 @@ import LMonad.TCB
 --   User
 --       ident Text
 --       password Text
---       email Text <Const Admin || Id, Id, _>
+--       email Text <Const Admin || Id, Id>
 --       admin Bool
 --   
 --       UniqueEmail email
