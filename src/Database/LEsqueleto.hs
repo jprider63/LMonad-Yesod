@@ -416,21 +416,23 @@ generateSql lEntityDefs s =
             in
             findEntity lEntityDefs
 
-        getLTableField tableS fieldS = 
-            if fieldS == "id" then
-                let typ = FTTypeCon Nothing (Text.pack $ tableS ++ "Id") in
-                LFieldDef fieldS typ True ([],[])
-            else
-                let ent = getLTable tableS in
-                -- let findField [] = error $ "Could not find field `" ++ fieldS ++ "` for table `" ++ tableS ++ "`"
-                --     findField (h:t) = 
-                --         if toLowerString (lFieldHaskell h) == toLowerString fieldS then
-                --             h
-                --         else
-                --             findField t
-                -- in
-                -- findField $ lEntityFields ent
-                getLEntityFieldDef ent fieldS
+        getLTableField = 
+            getLEntityFieldOrIdDef
+        -- getLTableField tableS fieldS = 
+        --     if fieldS == "id" then
+        --         let typ = FTTypeCon Nothing (Text.pack $ tableS ++ "Id") in
+        --         LFieldDef fieldS typ True ([],[])
+        --     else
+        --         let ent = getLTable tableS in
+        --         -- let findField [] = error $ "Could not find field `" ++ fieldS ++ "` for table `" ++ tableS ++ "`"
+        --         --     findField (h:t) = 
+        --         --         if toLowerString (lFieldHaskell h) == toLowerString fieldS then
+        --         --             h
+        --         --         else
+        --         --             findField t
+        --         -- in
+        --         -- findField $ lEntityFields ent
+        --         getLEntityFieldDef ent fieldS
 
         isTableFieldOptional tableS fieldS =
             case lFieldType $ getLTableField tableS fieldS of
@@ -520,8 +522,9 @@ generateSql lEntityDefs s =
 
         reqTermsTerm isTableOptional returning (TermTF tableS field) = case field of
             Field fieldS ->
-                let fieldDef = getLTableField tableS fieldS in
-                let dep = if readLabelIsBottom $ lFieldLabelAnnotations fieldDef then
+                let ent = getLTable tableS in -- Move this to TermTF? Or someplace earlier?
+                let field = getLTableField ent fieldS in
+                let dep = if not (isFieldLabeled ent field) then
                         Nothing
                       else
                         let ( anns, _) = lFieldLabelAnnotations fieldDef in

@@ -29,7 +29,7 @@ import LMonad.TCB
 --       deriving Typeable
 
 mkLabels :: String -> [EntityDef] -> Q [Dec]
-mkLabels labelS ents = mkLabelsWithDefault labelS (LABottom, LABottom) ents
+mkLabels labelS ents = mkLabelsWithDefault labelS (LABottom, LATop) ents
 
 mkLabelsWithDefault :: String -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
 mkLabelsWithDefault labelS defaultLabel ents = do
@@ -58,7 +58,7 @@ mkLabelsWithDefault labelS defaultLabel ents = do
 
 -- | Helper function that prints out the code generated at compilation.
 mkLabels' :: String -> [EntityDef] -> Q [Dec]
-mkLabels' labelS ents = mkLabelsWithDefault' labelS (LABottom, LABottom) ents
+mkLabels' labelS ents = mkLabelsWithDefault' labelS (LABottom, LATop) ents
 
 mkLabelsWithDefault' :: String -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
 mkLabelsWithDefault' labelS defaultLabel ents = do
@@ -89,7 +89,8 @@ mkProtectedEntity labelType ent =
             let strict = if lFieldStrict field then IsStrict else NotStrict in
             let rawType = fieldTypeToType $ lFieldType field in
             let typ = 
-                  if labelIsBottom $ lFieldLabelAnnotations field then
+                  -- If the field's label equals the table label, we don't need to wrap it in a Labeled.
+                  if not (isFieldLabeled ent field) then
                     rawType
                   else
                     AppT (AppT (ConT (mkName "Labeled")) labelType) rawType

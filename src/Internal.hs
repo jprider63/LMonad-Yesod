@@ -18,6 +18,7 @@ import LMonad (Label(..))
 
 data LabelAnnotation = 
     LABottom
+  | LATop
   | LAId
   | LAConst String
   | LAField String
@@ -65,6 +66,10 @@ headToLower :: String -> String
 headToLower (h:t) = (Char.toLower h):t
 headToLower s = error $ "Invalid name `" ++ s ++ "`"
 
+isFieldLabeled :: LEntityDef -> LFieldDef -> Bool
+isFieldLabeled ent field = lEntityLabelAnnotations ent == lFieldLabelAnnotations field
+
+-- Returns an attrs label.
 attrsToLabel :: [Attr] -> (LabelAnnotation, LabelAnnotation) -> ((LabelAnnotation, LabelAnnotation) -> (LabelAnnotation, LabelAnnotation)) -> (LabelAnnotation, LabelAnnotation)
 attrsToLabel attrs defaultLabel validator = 
     let labels = List.foldl' (\acc attr ->
@@ -80,6 +85,7 @@ attrsToLabel attrs defaultLabel validator =
         Just (read, write) -> (canonicalOrder read, canonicalOrder write)
 
     where
+        canonicalOrder l@LATop = l
         canonicalOrder l@LABottom = l
         canonicalOrder l@LAId = l
         canonicalOrder l@(LAConst _) = l
@@ -99,20 +105,21 @@ toLEntityDef defaultLabel ent =
       , lEntityUniqueFieldLabelsAnnotations = lFieldsUniqueLabels fields
     }
     in
-    case checkReadLabelIsBottom def of
-        Nothing ->
-            def
-        Just err ->
-            error err
+    def
+    -- case checkReadLabelIsBottom def of
+    --     Nothing ->
+    --         def
+    --     Just err ->
+    --         error err
     
     where
         -- JP: Do we need to sort the labels?
         labels = 
             let attrs = entityAttrs ent in
             attrsToLabel attrs defaultLabel $ \l@(readSide, writeSide) -> 
-                -- Check that table label does not have id.
+                -- Check that table label does not have id or field.
                 if containsIdOrField readSide || containsIdOrField writeSide then
-                    error $ "Entity `" ++ (Text.unpack $ unHaskellName $ entityHaskell ent) ++ "` cannot have label `Id` in the create annotation."
+                    error $ "Entity `" ++ (Text.unpack $ unHaskellName $ entityHaskell ent) ++ "` cannot have label `Id` or `Field` in the create annotation."
                 else
                     l
             
@@ -120,6 +127,7 @@ toLEntityDef defaultLabel ent =
 
         -- Don't allow Id or Field in table labels.
         containsIdOrField LAId = True
+        containsIdOrField LATop = False
         containsIdOrField LABottom = False
         containsIdOrField (LAConst _) = False
         containsIdOrField (LAField _) = True
@@ -131,29 +139,29 @@ toLEntityDef defaultLabel ent =
         -- createContainsId (_:t) = createContainsId t
 
 -- Returns an error message if a read label is not bottom.
-checkReadLabelIsBottom :: LEntityDef -> Maybe String
-checkReadLabelIsBottom def = foldr helper Nothing fields
-    where
-        fields = lEntityFields def
-
-        helper _ e@(Just _) = e
-        helper field Nothing = 
-            let (readLabel, writeLabel) = lFieldLabelAnnotations field in
-            let fName = lFieldHaskell field in
-            helper' fName readLabel <|> helper' fName writeLabel
-
-        helper' _ LAId = Nothing
-        helper' _ LABottom = Nothing
-        helper' _ (LAConst _) = Nothing
-        helper' n (LAJoin a b) = helper' n a <|> helper' n b
-        helper' n (LAMeet a b) = helper' n a <|> helper' n b
-        helper' origName (LAField name) = case Map.lookup name fields of
-            Nothing -> 
-                error "checkReadLabelIsBottom: unreachable"
-            Just field -> case lFieldLabelAnnotations field of
-                (LABottom,_) -> Nothing
-                _ -> Just $ "The read label of `" ++ lEntityHaskell def ++ "." ++ name ++ "` must be bottom (_) since it is part of `" ++ origName ++ "`'s label."
-
+-- checkReadLabelIsBottom :: LEntityDef -> Maybe String
+-- checkReadLabelIsBottom def = foldr helper Nothing fields
+--     where
+--         fields = lEntityFields def
+-- 
+--         helper _ e@(Just _) = e
+--         helper field Nothing = 
+--             let (readLabel, writeLabel) = lFieldLabelAnnotations field in
+--             let fName = lFieldHaskell field in
+--             helper' fName readLabel <|> helper' fName writeLabel
+-- 
+--         helper' _ LAId = Nothing
+--         helper' _ LABottom = Nothing
+--         helper' _ (LAConst _) = Nothing
+--         helper' n (LAJoin a b) = helper' n a <|> helper' n b
+--         helper' n (LAMeet a b) = helper' n a <|> helper' n b
+--         helper' origName (LAField name) = case Map.lookup name fields of
+--             Nothing -> 
+--                 error "checkReadLabelIsBottom: unreachable"
+--             Just field -> case lFieldLabelAnnotations field of
+--                 (LABottom,_) -> Nothing
+--                 _ -> Just $ "The read label of `" ++ lEntityHaskell def ++ "." ++ name ++ "` must be bottom (_) since it is part of `" ++ origName ++ "`'s label."
+-- 
 -- TODO: What about integrity labels??? XXX
 
 
@@ -227,7 +235,7 @@ toLFieldDef defaultLabel f =
 
 -- Parse chevrons
 -- C = < L , L >
--- L = K | _
+-- L = K | _ | ^
 -- K = A || K | A
 -- A = Id | Const name | Field name
 
@@ -246,7 +254,10 @@ parseChevrons s = case parseOnly parseC s of
             write <- parseL
             return (read,write)
 
-        parseL = (skipSpace >> char '_' >> return LABottom) <|> parseJ
+        parseL = 
+                (skipSpace >> char '_' >> return LABottom) 
+            <|> (skipSpace >> char '^' >> return LATop) 
+            <|> parseJ
 
         parseJ = do
             lm <- parseM
@@ -299,6 +310,14 @@ parseChevrons s = case parseOnly parseC s of
         
         takeAlphaNum = takeWhile1 Char.isAlphaNum
             
+getLEntityFieldOrIdDef :: LEntityDef -> String -> LFieldDef
+getLEntityFieldOrIdDef ent "id" = 
+    let tableS = lEntityHaskell ent in
+    let tLabel = lEntityLabelAnnotations ent in
+    let typ = FTTypeCon Nothing (Text.pack $ tableS ++ "Id") in
+    LFieldDef "id" typ True tLabel
+getLEntityFieldOrIdDef ent fName = getLEntityFieldDef ent fName
+
 getLEntityFieldDef :: LEntityDef -> String -> LFieldDef
 getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
     Nothing ->
@@ -306,8 +325,8 @@ getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
     Just def ->
         def
 
-labelIsBottom (LABottom, LABottom) = True
-labelIsBottom _ = False
+-- labelIsBottom (LABottom, LABottom) = True
+-- labelIsBottom _ = False
 
 -- lEntityFieldsList :: LEntityDef -> [LFieldDef]
 -- lEntityFieldsList = Map.elems . lEntityFields
@@ -319,6 +338,7 @@ lFieldsUniqueLabels fields =
 lNameHelper' :: String -> (LabelAnnotation, LabelAnnotation) -> String
 lNameHelper' prefix (la, lb) = prefix ++ toName la ++ toName lb
     where
+        toName LATop = "Top"
         toName LABottom = "Bottom"
         toName LAId = "Id"
         toName (LAConst c) = "C" ++ c
@@ -368,6 +388,7 @@ lFieldLabelArguments (la, lb) =
 
     where
         labelAnnotationLeaves :: LabelAnnotation -> [LabelAnnotation]
+        labelAnnotationLeaves LATop = [LATop]
         labelAnnotationLeaves LABottom = [LABottom]
         labelAnnotationLeaves LAId = [LAId]
         labelAnnotationLeaves l@(LAConst _) = [l]
