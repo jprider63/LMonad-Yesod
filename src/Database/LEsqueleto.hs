@@ -224,14 +224,18 @@ generateSql lEntityDefs s =
                       let taints = List.foldr (\rterm acc -> case rterm of
                                 ReqField _ _ False _ -> 
                                     acc
-                                ReqField _ _ _ Nothing -> 
+                                -- TODO: This case is wrong? It doesn't matter if there aren't any dependencies. XXX
+                                ReqField _ _ _ [] -> 
                                     acc
-                                ReqField table field _returning (Just deps) -> 
-                                    let labeler = VarE $ mkName $ "readLabel" ++ (headToUpper table) ++ (headToUpper field) ++ "'" in
-                                    let label = List.foldl' (\acc (table',field') -> 
-                                            AppE acc $ getExpr table' field'
-                                          ) labeler deps
-                                    in
+                                ReqField table field _returning deps -> 
+                                    let labeler = error "TODO XXX" in
+                                    let label = error "TODO XXX" in
+
+                                    -- let labeler = VarE $ mkName $ "readLabel" ++ (headToUpper table) ++ (headToUpper field) ++ "'" in
+                                    -- let label = List.foldl' (\acc (table',field') -> 
+                                    --         AppE acc $ getExpr table' field'
+                                    --       ) labeler deps
+                                    -- in
                                     let stmt = if protected then
                                             let vName = varNameTableFieldP table field in
                                             let lName = mkName "_protected_label" in
@@ -353,13 +357,15 @@ generateSql lEntityDefs s =
 
         mkExprBExpr isTableOptional (BExprBinOp (BTerm term1) op' (BTerm term2)) = 
             let (table1,field1) = extractTableField term1 in
+            let ent1 = getLTable table1 in
             let (table2,field2) = extractTableField term2 in
+            let ent2 = getLTable table2 in
             let tableOptional1 = isTableOptional table1 in -- TODO: This is probably incorrect?? Need to consider the relationship between the two tables? XXX
             let tableOptional2 = isTableOptional table2 in
             let expr1' = mkExprTF tableOptional1 table1 field1 in
             let expr2' = mkExprTF tableOptional2 table2 field2 in
-            let fieldOptional1 = isTableFieldOptional table1 field1 in
-            let fieldOptional2 = isTableFieldOptional table2 field2 in
+            let fieldOptional1 = isTableFieldOptional ent1 field1 in
+            let fieldOptional2 = isTableFieldOptional ent2 field2 in
             let optional1 = tableOptional1 || fieldOptional1 in
             let optional2 = tableOptional2 || fieldOptional2 in
             let ( expr1, expr2) = case ( optional1, optional2) of
@@ -548,7 +554,7 @@ generateSql lEntityDefs s =
             FieldAll ->
                 let hasDeps = 
                       let ent = getLTable tableS in -- Move this to TermTF? Or someplace earlier?
-                      List.foldl' (\acc f -> acc || List.length (lFieldLabelDependencies f) > 0) False $ lEntityFields ent
+                      List.foldl' (\acc f -> acc || not (List.null (lFieldLabelDependencies f))) False $ lEntityFields ent
                       -- List.foldl' (\acc f -> acc || (not $ readLabelIsBottom $ lFieldLabelAnnotations f)) False $ lEntityFields ent
                 in
                 let optional = isTableOptional tableS in
@@ -583,7 +589,8 @@ data ReqTerm =
 --      , _reqFieldIsOptional :: Bool
       , _reqFieldReturning :: Bool
       -- JP: Drop this optional? XXX
-      , _reqFieldDependencies :: Maybe [(String,String)] -- Contains ( table, field) dependencies.
+      , _reqFieldDependencies :: [String]
+      -- , _reqFieldDependencies :: Maybe [(String,String)] -- Contains ( table, field) dependencies.
 --      , _reqFieldIsDependency :: Bool
     }
   | ReqEntity {
