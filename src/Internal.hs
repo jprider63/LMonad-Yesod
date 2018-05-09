@@ -68,7 +68,7 @@ headToLower (h:t) = (Char.toLower h):t
 headToLower s = error $ "Invalid name `" ++ s ++ "`"
 
 isFieldLabeled :: LEntityDef -> LFieldDef -> Bool
-isFieldLabeled ent field = lEntityLabelAnnotations ent != lFieldLabelAnnotations field
+isFieldLabeled ent field = lEntityLabelAnnotations ent /= lFieldLabelAnnotations field
 
 -- Returns an attrs label.
 attrsToLabel :: [Attr] -> (LabelAnnotation, LabelAnnotation) -> ((LabelAnnotation, LabelAnnotation) -> (LabelAnnotation, LabelAnnotation)) -> (LabelAnnotation, LabelAnnotation)
