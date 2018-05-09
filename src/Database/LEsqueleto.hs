@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, OverloadedStrings #-}
 
-module Database.LEsqueleto (mkLSql, module Export) where
+module Database.LEsqueleto (mkLSql, mkLSqlWithDefault, module Export) where
 
 import Control.Monad.Trans.Class (lift)
 import Data.Attoparsec.Text (parseOnly)
@@ -26,10 +26,13 @@ import Internal
 
 -- | Generate the quasiquoter function `lsql` that parses the esqueleto DSL.
 mkLSql :: [EntityDef] -> Q [Dec]
-mkLSql ents' = 
+mkLSql = mkLSqlWithDefault (LABottom, LATop)
+
+mkLSqlWithDefault :: (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
+mkLSqlWithDefault defaultLabel ents' = 
     let lsql = mkName "lsql" in
     let sig = SigD lsql (ConT ''QuasiQuoter) in
-    let ents = mkSerializedLEntityDefs $ map toLEntityDef ents' in
+    let ents = mkSerializedLEntityDefs $ map (toLEntityDef defaultLabel) ents' in -- JP: Do we need to call toLEntityDef again?
     let def = ValD (VarP lsql) (NormalB (AppE (VarE 'lsqlHelper) ents)) [] in
     let lsql' = mkName "lsql'" in
     let sig' = SigD lsql' (ConT ''QuasiQuoter) in
@@ -80,8 +83,10 @@ mkSerializedLEntityDefs ents' =
                   let strict = ConE $ if lFieldStrict field then 'True else 'False in
                   let anns = 
                         let ( r', w') = lFieldLabelAnnotations field in
-                        let r = ListE $ map mkSerializedLabelAnnotation r' in
-                        let w = ListE $ map mkSerializedLabelAnnotation w' in
+                        let r = mkSerializedLabelAnnotation r' in
+                        let w = mkSerializedLabelAnnotation w' in
+                        -- let r = ListE $ map mkSerializedLabelAnnotation r' in
+                        -- let w = ListE $ map mkSerializedLabelAnnotation w' in
                         -- let c = ListE $ map mkSerializedLabelAnnotation c' in
                         TupE [ r, w] -- , c]
                   in
@@ -241,6 +246,7 @@ generateSql lEntityDefs s =
                                     stmt:acc
                                 ReqEntity _table _ False ->
                                     acc
+                                -- TODO: Fix all these checks. XXX
                                 ReqEntity table optional True ->
                                     let optionCase base handler = AppE (AppE (AppE (VarE 'maybe) (AppE (VarE 'return) base)) handler) (VarE $ varNameTableField table "maybe") in
                                     let nonoptionCase handler = AppE handler $ VarE $ varNameTableE table in
@@ -541,8 +547,9 @@ generateSql lEntityDefs s =
                 ReqField tableS fieldS returning dep
             FieldAll ->
                 let hasDeps = 
-                      let ent = getLTable tableS in
-                      List.foldl' (\acc f -> acc || (not $ readLabelIsBottom $ lFieldLabelAnnotations f)) False $ lEntityFields ent
+                      let ent = getLTable tableS in -- Move this to TermTF? Or someplace earlier?
+                      List.foldl' (\acc f -> acc || List.length (lFieldLabelDependencies f) > 0) False $ lEntityFields ent
+                      -- List.foldl' (\acc f -> acc || (not $ readLabelIsBottom $ lFieldLabelAnnotations f)) False $ lEntityFields ent
                 in
                 let optional = isTableOptional tableS in
                 -- if (lEntityHaskell $ getLTable tableS) == "User" then
