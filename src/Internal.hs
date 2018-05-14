@@ -222,6 +222,7 @@ toLFieldDef defaultLabel f =
         dependenciesHelper (LAField f) acc = f:acc
         dependenciesHelper (LAConst _) acc = acc
         dependenciesHelper LABottom acc = acc
+        dependenciesHelper LATop acc = acc
         dependenciesHelper (LAJoin a b) acc = dependenciesHelper a $ dependenciesHelper b acc
         dependenciesHelper (LAMeet a b) acc = dependenciesHelper a $ dependenciesHelper b acc
 
@@ -348,7 +349,7 @@ lFieldsUniqueLabels fields =
     List.nub $ fmap (lFieldLabelAnnotations . snd) fields
 
 lNameHelper' :: String -> (LabelAnnotation, LabelAnnotation) -> String
-lNameHelper' prefix (la, lb) = prefix ++ toName la ++ toName lb
+lNameHelper' prefix (la, lb) = prefix ++ toName la ++ "NM" ++ toName lb
     where
         toName LATop = "Top"
         toName LABottom = "Bottom"

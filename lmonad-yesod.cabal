@@ -61,7 +61,7 @@ library
       src
   
   ghc-options:
-      -Wall -fno-warn-name-shadowing -fno-warn-orphans
+      -Wall -Werror -fno-warn-name-shadowing -fno-warn-orphans -fno-warn-missing-fields -fno-warn-deprecated-flags
 
   extensions:
       FunctionalDependencies

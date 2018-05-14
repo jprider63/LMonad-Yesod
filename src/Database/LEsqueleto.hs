@@ -10,7 +10,7 @@ import Data.Maybe (fromJust)
 import qualified Data.Map.Strict as Map
 import qualified Database.Esqueleto as Esq
 import Database.Esqueleto as Export (Value(..), SqlBackend)
-import Data.Maybe (isJust)
+-- import Data.Maybe (isJust)
 import Database.Persist.Types
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -193,7 +193,7 @@ generateSql lEntityDefs s =
                       ) terms 
                 in
                 let body = 
-                      let getExpr table field = 
+                      let _getExpr table field = 
                             let res = List.foldl' ( \acc rterm -> maybe ( case rterm of 
                                     ReqField table' field' _ _
                                       | table == table' && field == field' ->

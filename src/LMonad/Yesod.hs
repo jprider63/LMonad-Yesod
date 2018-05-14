@@ -8,7 +8,7 @@ module LMonad.Yesod where
 import Control.Monad (forM)
 import Data.List (foldl', nub)
 import qualified Data.Map as Map
-import Data.Monoid (Last(..), mempty)
+import Data.Monoid (Last(..)) --, mempty)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (toLazyText)
 import Data.Text.Lazy.Encoding (encodeUtf8)
@@ -164,6 +164,7 @@ widgetToPageContent = swapBase $ \w -> do
 handlerToWidget :: (Label l, LMonad (HandlerT site IO), LMonad (WidgetT site IO)) => LMonadT l (HandlerT site IO) a -> LMonadT l (WidgetT site IO) a
 handlerToWidget = swapBase Yesod.handlerToWidget
 
+whamlet :: QuasiQuoter
 whamlet = QuasiQuoter { quoteExp = \s -> quoteExp Yesod.whamlet s >>= return . (AppE (VarE 'lLift)) }
 
 extractWidget :: (Label l, LMonad (WidgetT site IO)) => LMonadT l (WidgetT site IO) () -> LMonadT l (WidgetT site IO) (WidgetT site IO ())

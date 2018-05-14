@@ -286,8 +286,8 @@ mkLabelEntity labelType ent = -- , createLabels)) =
 -- | Similar to mkLabelEntity, except this function creates code that returns the labels given what the label depends on instead of the entire entity. 
 -- Ex:
 --
--- readLabelAdminGLBId' :: UserId -> DCLabel Principal
--- readLabelAdminGLBId' uId = 
+-- labelAdminGLBId' :: UserId -> DCLabel Principal
+-- labelAdminGLBId' uId = 
 --     ((toConfidentialityLabel "Admin") `glb` (toConfidentialityLabel uId))
 --
 mkLabelEntity' :: Type -> LEntityDef -> [Dec]
@@ -349,6 +349,10 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
                     appJoin (appF f a) $ appF f b
                   LAMeet a b ->
                     appMeet (appF f a) $ appF f b
+                  LABottom ->
+                    AppE f $ VarE 'Bottom
+                  LATop ->
+                    AppE f $ VarE 'Top
             in
             appJoin (appF toConfLabel c) (appF toIntegLabel i)
             -- List.foldl' (\acc ann -> appMeet acc $ appF ann) (appF h) t
@@ -454,7 +458,12 @@ mkProtectedEntityInstance labelType ent = do
     let labels = lEntityUniqueFieldLabelsAnnotations ent
     let lStmts = map mkLabelStmts labels
     ( fStmts, fExps) <- foldM (mkProtectedFieldInstance ent) ([],[]) $ lEntityFields ent
-    undefined
+    let recordCons = RecConE (mkName pName) fExps
+    let body = DoE $ lStmts ++ fStmts ++ [NoBindS (AppE (VarE (mkName "return")) recordCons)]
+    let toProtected = FunD (mkName "toProtected") [Clause [AsP entity (ConP (mkName "Entity") [VarP eId,VarP e])] (NormalB body) []]
+    let inst = InstanceD [] (AppT (AppT (ConT (mkName "ProtectedEntity")) labelType) (ConT (mkName eName))) [toProtected]
+    let typInst = TySynInstD (mkName "Protected") $ TySynEqn [ConT (mkName eName)] (ConT $ mkName pName)
+    return [inst, typInst]
 
     where
         eName = lEntityHaskell ent
@@ -462,7 +471,6 @@ mkProtectedEntityInstance labelType ent = do
         e = mkName "_e"
         eId = mkName "_eId"
         entity = mkName "_entity"
-
 
         mkLabelStmts anns = 
             let vName = lFieldLabelVarName eName anns in
@@ -482,8 +490,7 @@ mkProtectedEntityInstance labelType ent = do
                     let anns = lFieldLabelAnnotations field in
                     let lName = lFieldLabelVarName eName anns in
                     LetS [ValD (VarP vName) (NormalB (AppE (AppE (ConE 'Labeled) (VarE lName)) (AppE (VarE getter) (VarE e)))) []]
-            
-            undefined
+            return ( (newS:sAcc), (newF:fAcc))
 
                     
 {-
