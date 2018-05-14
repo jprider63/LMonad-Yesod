@@ -127,7 +127,7 @@ mkLEntityInstance labelType ent = --, createLabels)) =
     let fExpr = ListE $ map mkExpr fLabels in
 
     let tLabel = lEntityLabelAnnotations ent in
-    let tExpr = mkExpr tLabel in
+    let tExpr = mkExprConst tLabel in
 
     let pat = VarP e in
     let funcs = [
@@ -151,8 +151,11 @@ mkLEntityInstance labelType ent = --, createLabels)) =
         --     AppE (AppE (VarE 'lub) r) w
 
         mkExpr anns = 
+            AppE (mkExprConst anns) (VarE e)
+
+        mkExprConst anns = 
             let fName = lFieldLabelName eName anns in
-            AppE (VarE fName) (VarE e)
+            VarE fName
 
         -- mkExpr nameF anns = 
         --     let fName = nameF eName anns in
