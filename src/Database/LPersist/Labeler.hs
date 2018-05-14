@@ -127,7 +127,12 @@ mkLEntityInstance labelType ent = --, createLabels)) =
     let fExpr = ListE $ map mkExpr fLabels in
 
     let tLabel = lEntityLabelAnnotations ent in
-    let tExpr = mkExprConst tLabel in
+    -- Enforce invariant that tLabel is constant.
+    let tExpr = if isLabelAnnotationConstant (fst tLabel) && isLabelAnnotationConstant (snd tLabel) then
+            mkExprConst tLabel 
+          else
+            error $ "mkLEntityInstance: Table label must be constant (" ++ eName ++ ")."
+    in
 
     let pat = VarP e in
     let funcs = [
@@ -151,10 +156,11 @@ mkLEntityInstance labelType ent = --, createLabels)) =
         --     AppE (AppE (VarE 'lub) r) w
 
         mkExpr anns = 
-            AppE (mkExprConst anns) (VarE e)
+            let fName = lFieldLabelName eName anns in
+            AppE (VarE fName) (VarE e)
 
         mkExprConst anns = 
-            let fName = lFieldLabelName eName anns in
+            let fName = lFieldLabelName' eName anns in
             VarE fName
 
         -- mkExpr nameF anns = 
@@ -217,6 +223,18 @@ mkLEntityInstance labelType ent =
                     Just (rAcc, wAcc, cAcc) ->
                         ( appJoin rExpr rAcc, appJoin wExpr wAcc, appJoin cExpr cAcc)
 -}
+
+isLabelAnnotationConstant :: LabelAnnotation -> Bool
+isLabelAnnotationConstant = helper True
+    where
+        helper False _ = False
+        helper True LAId = False
+        helper True (LAField _) = False
+        helper True LATop = True
+        helper True LABottom = True
+        helper True (LAConst _) = True
+        helper True (LAJoin a b) = helper True a && helper True b
+        helper True (LAMeet a b) = helper True a && helper True b
 
 -- | Creates functions that get labels for each field in an entity. 
 -- Ex:
