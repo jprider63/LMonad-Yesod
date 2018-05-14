@@ -76,6 +76,14 @@ mkSerializedLEntityDefs ents' =
                 AppE (ConE 'LAConst) (LitE $ StringL s)
             LAField s -> 
                 AppE (ConE 'LAField) (LitE $ StringL s)
+            LATop ->
+                ConE 'LATop
+            LABottom ->
+                ConE 'LABottom
+            LAJoin a b ->
+                AppE (AppE (ConE 'LAJoin) (mkSerializedLabelAnnotation a)) (mkSerializedLabelAnnotation b)
+            LAMeet a b ->
+                AppE (AppE (ConE 'LAMeet) (mkSerializedLabelAnnotation a)) (mkSerializedLabelAnnotation b)
         mkSerializedLFieldsDef fields' = 
             let helper field = 
                   let name = LitE $ StringL $ lFieldHaskell field in
@@ -227,8 +235,8 @@ generateSql lEntityDefs s =
                                 -- TODO: This case is wrong? It doesn't matter if there aren't any dependencies. XXX
                                 ReqField _ _ _ [] -> 
                                     acc
-                                ReqField table field _returning deps -> 
-                                    let labeler = error "TODO XXX" in
+                                ReqField table field _returning _deps -> 
+                                    let _labeler = error "TODO XXX" in
                                     let label = error "TODO XXX" in
 
                                     -- let labeler = VarE $ mkName $ "readLabel" ++ (headToUpper table) ++ (headToUpper field) ++ "'" in

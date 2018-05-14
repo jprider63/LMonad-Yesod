@@ -218,17 +218,10 @@ mkLEntityInstance labelType ent =
 -- | Creates functions that get labels for each field in an entity. 
 -- Ex:
 --
--- readLabelUserAdminGLBId :: Entity User -> DCLabel Principal
--- readLabelUserAdminGLBId (Entity _eId _entity) =
---     readLabelUserAdminGLBId' _eId
+-- labelUserAdminGLBId :: Entity User -> DCLabel Principal
+-- labelUserAdminGLBId (Entity _eId _entity) =
+--     labelUserAdminGLBId' _eId
 --
--- createLabelUserId :: Entity User -> DCLabel Principal
--- createLabelUserId (Entity _eId _entity) = 
---     createLabelUserId' _eId
---
--- writeLabelUserBottom :: Entity User -> DCLabel Principal
--- writeLabelUserBottom (Entity _eId _entity) = 
---     writeLabelUserBottom'
 
 mkLabelEntity :: Type -> LEntityDef -> [Dec]
 mkLabelEntity labelType ent = -- , createLabels)) = 
@@ -267,6 +260,11 @@ mkLabelEntity labelType ent = -- , createLabels)) =
                     error "mkLabelEntity: Should not depend on meet."
                   LAJoin _ _ ->
                     error "mkLabelEntity: Should not depend on join."
+                  LABottom ->
+                    error "mkLabelEntity: Should not depend on bottom."
+                  LATop ->
+                    error "mkLabelEntity: Should not depend on top."
+                    -- JP: Should we just return acc for these cases?
                   
             in
             foldr helper (VarE $ lFieldLabelName' eName anns) args
@@ -323,6 +321,14 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
                   LAField s -> 
                     let typ = getLEntityFieldType ent s in
                     AppT (AppT ArrowT typ) acc
+                  LABottom ->
+                    acc
+                  LATop ->
+                    acc
+                  LAJoin _ _ ->
+                    acc
+                  LAMeet _ _ ->
+                    acc
             in
             List.foldr helper labelType
 
@@ -334,6 +340,14 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
                     (VarP $ mkName "_id"):acc
                   LAField s ->
                     (VarP $ mkName $ "_" ++ s):acc
+                  LABottom ->
+                    acc
+                  LATop ->
+                    acc
+                  LAJoin _ _ ->
+                    acc
+                  LAMeet _ _ ->
+                    acc
             in
             List.foldr helper []
 
@@ -350,9 +364,9 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
                   LAMeet a b ->
                     appMeet (appF f a) $ appF f b
                   LABottom ->
-                    AppE f $ VarE 'Bottom
+                    AppE f $ ConE 'Bottom
                   LATop ->
-                    AppE f $ VarE 'Top
+                    AppE f $ ConE 'Top
             in
             appJoin (appF toConfLabel c) (appF toIntegLabel i)
             -- List.foldl' (\acc ann -> appMeet acc $ appF ann) (appF h) t
