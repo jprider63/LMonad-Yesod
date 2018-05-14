@@ -132,7 +132,7 @@ mkLEntityInstance labelType ent = --, createLabels)) =
     let pat = VarP e in
     let funcs = [
             FunD 'getFieldLabels [Clause [pat] (NormalB fExpr) []]
-          , FunD 'tableLabel [Clause [VarP 'Proxy] (NormalB tExpr) []]
+          , FunD 'tableLabel [Clause [ConP 'Proxy []] (NormalB tExpr) []]
           --   FunD (mkName "getReadLabels") [Clause [pat] (NormalB rExpr) []]
           -- , FunD (mkName "getWriteLabels") [Clause [pat] (NormalB wExpr) []]
           -- , FunD (mkName "getCreateLabels") [Clause [pat] (NormalB cExpr) []]
