@@ -442,17 +442,50 @@ mkLabelEntity' labelType ent =
 --
 -- instance ProtectedEntity (DCLabel Principal) User ProtectedUser where
 --     toProtected _entity@(Entity _eId _e) = do
---         let _readLabelUserAdminGLBemail = readLabelUserAdminGLBemail
+--         let _labelUserAdminGLBemail = labelUserAdminGLBemail
 --         let ident = userIdent _e
 --         let password = userPassword _e
---         let email = Labeled _readLabelUserAdminGLBemail (userEmail _e)
+--         let email = Labeled _labelUserAdminGLBemail (userEmail _e)
 --         let admin = userAdmin _e
 --         return $ ProtectedUser ident password email admin
 
 mkProtectedEntityInstance :: Type -> LEntityDef -> Q [Dec]
 mkProtectedEntityInstance labelType ent = do
+    let labels = lEntityUniqueFieldLabelsAnnotations ent
+    let lStmts = map mkLabelStmts labels
+    ( fStmts, fExps) <- foldM (mkProtectedFieldInstance ent) ([],[]) $ lEntityFields ent
     undefined
 
+    where
+        eName = lEntityHaskell ent
+        pName = "Protected" ++ eName
+        e = mkName "_e"
+        eId = mkName "_eId"
+        entity = mkName "_entity"
+
+
+        mkLabelStmts anns = 
+            let vName = lFieldLabelVarName eName anns in
+            let fName = lFieldLabelName eName anns in
+            LetS [ValD (VarP vName) (NormalB (AppE (VarE fName) (VarE entity))) []]
+
+        mkProtectedFieldInstance :: LEntityDef -> ([Stmt],[FieldExp]) -> LFieldDef -> Q ([Stmt],[FieldExp])
+        mkProtectedFieldInstance ent (sAcc, fAcc) field = do
+            let fName = lFieldHaskell field
+            let getter = mkName $ (headToLower eName) ++ (headToUpper fName)
+            vName <- newName "v"
+            let setter = mkName $ 'p':(eName ++ (headToUpper fName))
+            let newF = (setter, VarE vName)
+            let newS = if isFieldLabeled ent field then
+                    LetS [ValD (VarP vName) (NormalB (AppE (VarE getter) (VarE e))) []]
+                  else
+                    let anns = lFieldLabelAnnotations field in
+                    let lName = lFieldLabelVarName eName anns in
+                    LetS [ValD (VarP vName) (NormalB (AppE (AppE (ConE 'Labeled) (VarE lName)) (AppE (VarE getter) (VarE e)))) []]
+            
+            undefined
+
+                    
 {-
 
 -- | Create ProtectedEntity instance for given entity.
