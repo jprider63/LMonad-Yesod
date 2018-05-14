@@ -257,14 +257,13 @@ mkLabelEntity labelType ent = -- , createLabels)) =
                     let f = mkName $ headToLower eName ++ headToUpper s in
                     AppE acc (AppE (VarE f) (VarE e))
                   LAMeet _ _ ->
-                    error "mkLabelEntity: Should not depend on meet."
+                    acc
                   LAJoin _ _ ->
-                    error "mkLabelEntity: Should not depend on join."
+                    acc
                   LABottom ->
-                    error "mkLabelEntity: Should not depend on bottom."
+                    acc
                   LATop ->
-                    error "mkLabelEntity: Should not depend on top."
-                    -- JP: Should we just return acc for these cases?
+                    acc
                   
             in
             foldr helper (VarE $ lFieldLabelName' eName anns) args
