@@ -83,16 +83,16 @@ attrsToLabel attrs defaultLabel validator =
     in
     case labels of
         Nothing -> defaultLabel
-        Just (read, write) -> (canonicalOrder read, canonicalOrder write)
+        Just (read, write) -> (canonicalLabelAnnotationOrder read, canonicalLabelAnnotationOrder write)
 
-    where
-        canonicalOrder l@LATop = l
-        canonicalOrder l@LABottom = l
-        canonicalOrder l@LAId = l
-        canonicalOrder l@(LAConst _) = l
-        canonicalOrder l@(LAField _) = l
-        canonicalOrder (LAMeet a b) = LAMeet (min a b) (max a b)
-        canonicalOrder (LAJoin a b) = LAMeet (min a b) (max a b)
+canonicalLabelAnnotationOrder :: LabelAnnotation -> LabelAnnotation
+canonicalLabelAnnotationOrder l@LATop = l
+canonicalLabelAnnotationOrder l@LABottom = l
+canonicalLabelAnnotationOrder l@LAId = l
+canonicalLabelAnnotationOrder l@(LAConst _) = l
+canonicalLabelAnnotationOrder l@(LAField _) = l
+canonicalLabelAnnotationOrder (LAMeet a b) = LAMeet (min a b) (max a b)
+canonicalLabelAnnotationOrder (LAJoin a b) = LAMeet (min a b) (max a b)
 
 
 toLEntityDef :: (LabelAnnotation, LabelAnnotation) -> EntityDef -> LEntityDef

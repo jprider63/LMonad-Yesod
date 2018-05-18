@@ -32,7 +32,7 @@ mkLabels :: String -> [EntityDef] -> Q [Dec]
 mkLabels labelS ents = mkLabelsWithDefault labelS (LABottom, LATop) ents
 
 mkLabelsWithDefault :: String -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
-mkLabelsWithDefault labelS defaultLabel ents = do
+mkLabelsWithDefault labelS (defaultLabelL, defaultLabelR) ents = do
     let entsL = map (toLEntityDef defaultLabel) ents
     let labelFs' = concat $ map (mkLabelEntity' labelType) entsL
     let labelFs = concat $ map (mkLabelEntity labelType) entsL
@@ -43,6 +43,8 @@ mkLabelsWithDefault labelS defaultLabel ents = do
     return $ concat [ labelFs', labelFs, lEntityInstance, protected, protectedInstance] -- , serializedLEntityDef, concat labelFs,
 
     where
+        defaultLabel = (canonicalLabelAnnotationOrder defaultLabelL, canonicalLabelAnnotationOrder defaultLabelR)
+
         labelType = 
             case Text.words $ Text.pack labelS of
                 [] ->
