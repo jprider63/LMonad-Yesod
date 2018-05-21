@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, OverloadedStrings, PatternGuards #-}
+{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, OverloadedStrings, PatternGuards, FlexibleContexts #-}
 
 module Database.LPersist.Labeler (mkLabels, mkLabels', mkLabelsWithDefault, mkLabelsWithDefault') where
 
@@ -645,6 +645,7 @@ mkInvariantChecks labelType ent = do
         fName = mkName $ "invariant" ++ eName
         tlName = mkName "tl"
 
+-- We can derive this in 8.0.1
 instance Lift LabelAnnotation where
     lift LABottom = conE 'LABottom
     lift LATop = conE 'LATop
@@ -653,4 +654,17 @@ instance Lift LabelAnnotation where
     lift (LAField s) = appE (conE 'LAField) (lift s)
     lift (LAMeet a b) = appE (appE (conE 'LAMeet) (lift a)) (lift b)
     lift (LAJoin a b) = appE (appE (conE 'LAJoin) (lift a)) (lift b)
+
+toConstantLabelAnnotation :: (Label l, ToLabel String l, ToLabel Lattice l) => (LabelAnnotation, LabelAnnotation) -> l
+toConstantLabelAnnotation l@(c,i) = helper toConfidentialityLabel c `lub` helper toIntegrityLabel i
+
+    where
+        helper :: (Label l, ToLabel String l, ToLabel Lattice l) => (forall s . ToLabel s l => s -> l) -> LabelAnnotation -> l
+        helper _ LAId = error $ "Not a constant label: " ++ show l
+        helper _ (LAField _) = error $ "Not a constant label: " ++ show l
+        helper f (LAConst s) = f s
+        helper f LABottom = f Bottom
+        helper f LATop = f Top
+        helper f (LAMeet a b) = helper f a `glb` helper f b
+        helper f (LAJoin a b) = helper f a `lub` helper f b
 

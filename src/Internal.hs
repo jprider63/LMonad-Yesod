@@ -143,10 +143,6 @@ toLEntityDef defaultLabel ent =
         -- createContainsId (LAId:_) = True
         -- createContainsId (_:t) = createContainsId t
 
-toConstantLabelAnnotation :: Label l => (LabelAnnotation, LabelAnnotation) -> l
-toConstantLabelAnnotation = error "TODO"
--- 
-
 -- Returns an error message if a read label is not bottom.
 -- checkReadLabelIsBottom :: LEntityDef -> Maybe String
 -- checkReadLabelIsBottom def = foldr helper Nothing fields
