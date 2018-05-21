@@ -2,6 +2,7 @@
 
 module Database.LPersist.Labeler (mkLabels, mkLabels', mkLabelsWithDefault, mkLabelsWithDefault') where
 
+import Control.DeepSeq (force)
 import Control.Monad
 import qualified Data.Char as Char
 import qualified Data.List as List
@@ -10,6 +11,7 @@ import Data.Proxy (Proxy(..))
 import qualified Data.Text as Text
 import Database.Persist.Types
 import Language.Haskell.TH
+import Language.Haskell.TH.Syntax (Lift(..))
 import Prelude
 
 import Database.LPersist
@@ -34,13 +36,14 @@ mkLabels labelS ents = mkLabelsWithDefault labelS (LABottom, LATop) ents
 mkLabelsWithDefault :: String -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
 mkLabelsWithDefault labelS (defaultLabelL, defaultLabelR) ents = do
     let entsL = map (toLEntityDef defaultLabel) ents
+    invariantChecks <- mconcat <$> mapM (mkInvariantChecks labelType) entsL
     let labelFs' = concat $ map (mkLabelEntity' labelType) entsL
     let labelFs = concat $ map (mkLabelEntity labelType) entsL
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
     protected <- mapM (mkProtectedEntity labelType) entsL
     protectedInstance <- mconcat <$> mapM (mkProtectedEntityInstance labelType) entsL
 --    let serializedLEntityDef = mkSerializedLEntityDefs entsL
-    return $ concat [ labelFs', labelFs, lEntityInstance, protected, protectedInstance] -- , serializedLEntityDef, concat labelFs,
+    return $ concat [ labelFs', invariantChecks, labelFs, lEntityInstance, protected, protectedInstance] -- , serializedLEntityDef, concat labelFs,
 
     where
         defaultLabel = (canonicalLabelAnnotationOrder defaultLabelL, canonicalLabelAnnotationOrder defaultLabelR)
@@ -601,4 +604,47 @@ getLEntityFieldType ent fName =
     let def = getLEntityFieldDef ent fName in
     fieldTypeToType $ lFieldType $ def
 
+
+-- Create startup check that each dependent label can flow to the table label.
+-- invariantUser = 
+--     let tl = tableLabel (Proxy :: Proxy User) in
+--     ()
+--
+--     if userADependentFieldLabel' `canFlowTo` tl then
+--         ... 
+--         ()
+--     else
+--         error "Field ADependentField's label must flow to the table label since it is a dependency."
+--     
+mkInvariantChecks :: Type -> LEntityDef -> Q [Dec]
+mkInvariantChecks labelType ent = do
+
+    let typ = SigD fName (ConT ''())
+    body <- mkBody
+    let fun = FunD fName [Clause [] body []]
+
+    return $ [typ, fun]
+
+    where
+        dependencyCheck acc fieldS | Just field <- Map.lookup fieldS (lEntityFields ent) = do
+            la <- lift $ lFieldLabelAnnotations field
+            return $ CondE 
+                (AppE (AppE (VarE 'canFlowTo) (AppE (VarE 'toConstantLabelAnnotation) la)) (VarE tlName)) 
+                acc 
+                (AppE (VarE 'error) (LitE $ StringL $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eName ++ "` must flow to the table label"))
+        dependencyCheck _ fieldS = error $ "Could not find field `" ++ fieldS ++ "`"
+
+        mkBody = do
+          conditions <- foldM dependencyCheck (VarE '()) $ lEntityDependencyFields ent
+          return $ NormalB $ 
+            AppE (VarE 'force) $
+            LetE [ValD (VarP tlName) (NormalB (SigE (AppE (VarE 'tableLabel) (ConE 'Proxy)) labelType)) []] $
+            conditions
+
+        eName = lEntityHaskell ent
+        fName = mkName $ "invariant" ++ eName
+        tlName = mkName "tl"
+
+    
+    
 

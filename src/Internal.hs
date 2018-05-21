@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, OverloadedStrings, DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell, OverloadedStrings, DeriveGeneric, DeriveLift #-}
 
 module Internal where
 
@@ -24,7 +24,7 @@ data LabelAnnotation =
   | LAField String
   | LAMeet LabelAnnotation LabelAnnotation
   | LAJoin LabelAnnotation LabelAnnotation
-    deriving (Show, Eq, Read, Ord, Generic)
+    deriving (Show, Eq, Read, Ord, Generic, Lift)
 
 -- instance Hashable LabelAnnotation
 
@@ -41,6 +41,7 @@ data LEntityDef = LEntityDef
 --     , lEntitySum     :: !Bool
     , lEntityLabelAnnotations :: !(LabelAnnotation,LabelAnnotation)
     , lEntityUniqueFieldLabelsAnnotations :: !UniqueLabels
+    , lEntityDependencyFields :: ![String]
     }
     deriving (Show, Eq, Read, Ord)
 
@@ -104,6 +105,7 @@ toLEntityDef defaultLabel ent =
       , lEntityFields = Map.fromList fields
       , lEntityLabelAnnotations = labels
       , lEntityUniqueFieldLabelsAnnotations = lFieldsUniqueLabels fields
+      , lEntityDependencyFields = error "TODO"
     }
     in
     def
@@ -114,13 +116,15 @@ toLEntityDef defaultLabel ent =
     --         error err
     
     where
+        -- label = toConstantLabelAnnotation labels
+
         -- JP: Do we need to sort the labels?
         labels = 
             let attrs = entityAttrs ent in
             attrsToLabel attrs defaultLabel $ \l@(readSide, writeSide) -> 
                 -- Check that table label does not have id or field.
                 if containsIdOrField readSide || containsIdOrField writeSide then
-                    error $ "Entity `" ++ (Text.unpack $ unHaskellName $ entityHaskell ent) ++ "` cannot have label `Id` or `Field` in the create annotation."
+                    error $ "Entity `" ++ (Text.unpack $ unHaskellName $ entityHaskell ent) ++ "` cannot have label `Id` or `Field` in the table label."
                 else
                     l
             
@@ -138,6 +142,10 @@ toLEntityDef defaultLabel ent =
         -- createContainsId [] = False
         -- createContainsId (LAId:_) = True
         -- createContainsId (_:t) = createContainsId t
+
+toConstantLabelAnnotation :: Label l => (LabelAnnotation, LabelAnnotation) -> l
+toConstantLabelAnnotation = error "TODO"
+-- 
 
 -- Returns an error message if a read label is not bottom.
 -- checkReadLabelIsBottom :: LEntityDef -> Maybe String

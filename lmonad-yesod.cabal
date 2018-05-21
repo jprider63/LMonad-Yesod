@@ -77,6 +77,7 @@ library
     , blaze-html
     , blaze-markup
     , containers
+    , deepseq
     , esqueleto
     , hashable
     , haskell-src-meta
