@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, OverloadedStrings, PatternGuards #-}
 
 module Database.LPersist.Labeler (mkLabels, mkLabels', mkLabelsWithDefault, mkLabelsWithDefault') where
 
@@ -645,6 +645,12 @@ mkInvariantChecks labelType ent = do
         fName = mkName $ "invariant" ++ eName
         tlName = mkName "tl"
 
-    
-    
+instance Lift LabelAnnotation where
+    lift LABottom = conE 'LABottom
+    lift LATop = conE 'LATop
+    lift LAId = conE 'LAId
+    lift (LAConst s) = appE (conE 'LAConst) (lift s)
+    lift (LAField s) = appE (conE 'LAField) (lift s)
+    lift (LAMeet a b) = appE (appE (conE 'LAMeet) (lift a)) (lift b)
+    lift (LAJoin a b) = appE (appE (conE 'LAJoin) (lift a)) (lift b)
 

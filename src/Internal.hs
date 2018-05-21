@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, OverloadedStrings, DeriveGeneric, DeriveLift #-}
+{-# LANGUAGE TemplateHaskell, OverloadedStrings, DeriveGeneric #-}
 
 module Internal where
 
@@ -24,7 +24,7 @@ data LabelAnnotation =
   | LAField String
   | LAMeet LabelAnnotation LabelAnnotation
   | LAJoin LabelAnnotation LabelAnnotation
-    deriving (Show, Eq, Read, Ord, Generic, Lift)
+    deriving (Show, Eq, Read, Ord, Generic)
 
 -- instance Hashable LabelAnnotation
 
