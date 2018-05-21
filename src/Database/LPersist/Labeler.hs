@@ -635,7 +635,7 @@ mkInvariantChecks labelType ent = do
         dependencyCheck _ fieldS = error $ "Could not find field `" ++ fieldS ++ "`"
 
         mkBody = do
-          conditions <- foldM dependencyCheck (TupE [])) $ lEntityDependencyFields ent
+          conditions <- foldM dependencyCheck (TupE []) $ lEntityDependencyFields ent
           return $ NormalB $ 
             AppE (VarE 'force) $
             LetE [ValD (VarP tlName) (NormalB (SigE (AppE (VarE 'tableLabel) (ConE 'Proxy)) labelType)) []] $
