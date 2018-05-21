@@ -28,7 +28,7 @@ module Database.LPersist (
     , getEntityLabel
     , YesodLPersist (..)
     , lDefaultRunDB
-    , ProtectedEntity(..)
+    , ProtectedEntity
     , Protected
     , PEntity(..)
     , get
@@ -72,6 +72,7 @@ import LMonad.TCB
 import Yesod.Core
 import Yesod.Persist (YesodPersist(..))
 
+import Database.LPersist.TCB
 import Internal
 
 -- | `LEntity` typeclass to taint labels when reading, writing, and creating entity fields.
@@ -146,16 +147,6 @@ getEntityLabel = joinLabels . getFieldLabels
 -- raiseLabelRead :: (Label l, LMonad m, LEntity l e) => Entity e -> LMonadT l m ()
 -- raiseLabelRead e = taintLabel $ getLabelRead e
 
--- | Typeclass for protected entities.
--- `mkLabels` automatically generates these instances.
-type family Protected e
-class Label l => ProtectedEntity l e | e -> l where
-    -- toProtected :: LMonad m => Entity e -> LMonadT l m (Protected e)
-    toProtected :: Entity e -> Protected e
-
--- | ADT wrapper for protected entities. Analagous to Entity.
-data PEntity l e = (ProtectedEntity l e) => PEntity (Key e) (Protected e)
-
 -- | How to run database functions.
 
 class YesodPersist site => YesodLPersist site where
@@ -187,7 +178,7 @@ pGet :: forall l m v backend . (ProtectedEntity l v, LMonad m, Label l, LEntity 
 pGet key = do
     lift $ taintLabel $ tableLabel (Proxy :: Proxy v)
     res <- Persist.get key
-    return $ fmap (toProtected . Entity key) res
+    return $ fmap (toProtectedTCB . Entity key) res
 
 insert :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => v -> ReaderT backend (LMonadT l m) (Key v)
 insert val = do
@@ -268,7 +259,7 @@ updateGet key = updateHelper err f key
 pUpdateGet :: forall l m v backend . (backend ~ SqlBackend, ProtectedEntity l v, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) (Protected v)
 pUpdateGet key updates = do
     lift $ taintLabel $ tableLabel (Proxy :: Proxy v)
-    updateHelper err (return . toProtected . (Entity key)) key updates
+    updateHelper err (return . toProtectedTCB . (Entity key)) key updates
 
     where
         err = liftIO $ throwIO $ Persist.KeyNotFound $ Prelude.show key
@@ -306,7 +297,7 @@ pGetBy uniq = do
         Just e -> do
             taintLabel $ lub tLabel $ joinLabels $ map ($ e) $ uniqueToFields uniq
 
-            return $ Just $ toProtectedWithKey e
+            return $ Just $ toProtectedWithKeyTCB e
 
 deleteBy :: forall l v m backend . (ProtectedEntity l v, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) ()
 deleteBy uniq = do
@@ -397,11 +388,6 @@ selectFirst filts opts = do
             taintLabel $ tableL `lub` (getEntityLabel res)
             return resM
 
-toProtectedWithKey :: (ProtectedEntity l e) => Entity e -> PEntity l e
-toProtectedWithKey r = 
-    let p = toProtected r in
-    PEntity (entityKey r) p
-
 pSelectFirst :: forall backend l m v . (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v, ProtectedEntity l v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
 pSelectFirst filts opts = do
     let tableL = tableLabel (Proxy :: Proxy v)
@@ -418,7 +404,7 @@ pSelectFirst filts opts = do
             -- JP: Eliminate duplicates as optimization?
             taintLabel $ lub tableL $ joinLabels $ map ($ e) los ++ map ($ e) lfs
 
-            return $ Just $ toProtectedWithKey e
+            return $ Just $ toProtectedWithKeyTCB e
 
 count :: forall l m v backend . (PersistQuery backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => [Filter v] -> ReaderT backend (LMonadT l m) Int
 count filts = do
@@ -458,7 +444,7 @@ pSelectList filts opts = do
 
     let (res, l) = foldr (\e (ps, l) -> 
             let l' = lub l $ joinLabels $ map ($ e) los ++ map ($ e) lfs in
-            let ps' = (toProtectedWithKey e):ps in
+            let ps' = (toProtectedWithKeyTCB e):ps in
             (ps', l')
           ) ([], tableL) res'
 

@@ -15,6 +15,7 @@ import Database.Persist.Types
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Database.LPersist
+import Database.LPersist.TCB
 --import Database.Persist
 import qualified Language.Haskell.Meta.Parse as Meta
 import Language.Haskell.TH
@@ -266,9 +267,9 @@ generateSql lEntityDefs s =
                                             let vName = varNameTableP table in
                                             BindS (VarP vName) $ if optional then
                                                 let tName = mkName "_tmp" in
-                                                optionCase (ConE 'Nothing) $ LamE [VarP tName] $ parenInfixE (AppE (VarE 'toProtected) (VarE tName)) (VarE '(>>=)) $ parenInfixE (VarE 'return) (VarE '(.)) (ConE 'Just)
+                                                optionCase (ConE 'Nothing) $ LamE [VarP tName] $ parenInfixE (AppE (VarE 'toProtectedTCB) (VarE tName)) (VarE '(>>=)) $ parenInfixE (VarE 'return) (VarE '(.)) (ConE 'Just)
                                               else
-                                                nonoptionCase $ VarE 'toProtected
+                                                nonoptionCase $ VarE 'toProtectedTCB
                                           else
                                             let taintEntityLabel = AppE (VarE 'taintLabel) (VarE 'getEntityLabel) in
                                             NoBindS $ if optional then

@@ -48,6 +48,7 @@ library
       Database.LEsqueleto
     , Database.LPersist
     , Database.LPersist.Labeler
+    , Database.LPersist.TCB
     , Database.LPersist.TH
     , LMonad.Yesod
   

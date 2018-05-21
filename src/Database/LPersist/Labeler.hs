@@ -484,13 +484,13 @@ mkLabelEntity' labelType ent =
 -- Ex:
 --
 -- instance ProtectedEntity (DCLabel Principal) User ProtectedUser where
---     toProtected _entity@(Entity _eId _e) = do
+--     toProtected _entity@(Entity _eId _e) =
 --         let _labelUserAdminGLBemail = labelUserAdminGLBemail
 --         let ident = userIdent _e
 --         let password = userPassword _e
 --         let email = Labeled _labelUserAdminGLBemail (userEmail _e)
 --         let admin = userAdmin _e
---         return $ ProtectedUser ident password email admin
+--         ProtectedUser ident password email admin
 
 mkProtectedEntityInstance :: Type -> LEntityDef -> Q [Dec]
 mkProtectedEntityInstance labelType ent = do
