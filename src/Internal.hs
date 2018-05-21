@@ -9,6 +9,8 @@ import qualified Data.Char as Char
 import qualified Data.List as List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Database.Persist.Types
@@ -41,11 +43,11 @@ data LEntityDef = LEntityDef
 --     , lEntitySum     :: !Bool
     , lEntityLabelAnnotations :: !(LabelAnnotation,LabelAnnotation)
     , lEntityUniqueFieldLabelsAnnotations :: !UniqueLabels
-    , lEntityDependencyFields :: ![String]
+    , lEntityDependencyFields :: !(Set String)
     }
     deriving (Show, Eq, Read, Ord)
 
-type UniqueLabels = [(LabelAnnotation, LabelAnnotation)] -- , [[LabelAnnotation]])
+type UniqueLabels = [(LabelAnnotation, LabelAnnotation)] -- Could be Set, but TH mostly uses lists
 
 data LFieldDef = LFieldDef
     { lFieldHaskell   :: !String -- ^ name of the field
@@ -98,17 +100,14 @@ canonicalLabelAnnotationOrder (LAJoin a b) = LAMeet (min a b) (max a b)
 
 toLEntityDef :: (LabelAnnotation, LabelAnnotation) -> EntityDef -> LEntityDef
 toLEntityDef defaultLabel ent = 
-    let fields = fmap (toLFieldDef defaultLabel) (entityFields ent) in
-    let def = LEntityDef {
+    LEntityDef {
         lEntityHaskell = Text.unpack $ unHaskellName $ entityHaskell ent
 --      , lEntityDB = Text.unpack $ unDBName $ entityDB ent
-      , lEntityFields = Map.fromList fields
+      , lEntityFields = fields
       , lEntityLabelAnnotations = labels
       , lEntityUniqueFieldLabelsAnnotations = lFieldsUniqueLabels fields
-      , lEntityDependencyFields = error "TODO"
+      , lEntityDependencyFields = dependencyFields
     }
-    in
-    def
     -- case checkReadLabelIsBottom def of
     --     Nothing ->
     --         def
@@ -116,7 +115,20 @@ toLEntityDef defaultLabel ent =
     --         error err
     
     where
-        -- label = toConstantLabelAnnotation labels
+        fields = Map.fromList $ fmap (toLFieldDef defaultLabel) (entityFields ent)
+
+        -- Fields that are dependencies of other field labels.
+        dependencyFields = foldr (accTuple insertFields . lFieldLabelAnnotations) Set.empty fields
+
+        accTuple f (a, b) acc = f b $ f a acc
+        insertFields LABottom acc = acc
+        insertFields LATop acc = acc
+        insertFields LAId acc = acc
+        insertFields (LAConst _) acc = acc
+        insertFields (LAField s) acc = Set.insert s acc
+        insertFields (LAMeet _ _) acc = acc
+        insertFields (LAJoin _ _) acc = acc
+
 
         -- JP: Do we need to sort the labels?
         labels = 
@@ -348,9 +360,9 @@ getLEntityFieldDef ent fName = case Map.lookup fName $ lEntityFields ent of
 -- lEntityFieldsList :: LEntityDef -> [LFieldDef]
 -- lEntityFieldsList = Map.elems . lEntityFields
 
-lFieldsUniqueLabels :: [(String, LFieldDef)] -> UniqueLabels
+lFieldsUniqueLabels :: Map String LFieldDef -> UniqueLabels
 lFieldsUniqueLabels fields =
-    List.nub $ fmap (lFieldLabelAnnotations . snd) fields
+    Set.toList $ foldMap (Set.singleton . lFieldLabelAnnotations) fields
 
 lNameHelper' :: String -> (LabelAnnotation, LabelAnnotation) -> String
 lNameHelper' prefix (la, lb) = prefix ++ toName la ++ "NM" ++ toName lb
