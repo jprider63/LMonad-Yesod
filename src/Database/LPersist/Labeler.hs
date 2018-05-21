@@ -631,18 +631,19 @@ mkInvariantChecks labelType ent = do
             return $ CondE 
                 (AppE (AppE (VarE 'canFlowTo) (AppE (VarE 'toConstantLabelAnnotation) la)) (VarE tlName)) 
                 acc 
-                (AppE (VarE 'error) (LitE $ StringL $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eName ++ "` must flow to the table label"))
+                (AppE (VarE 'error) (LitE $ StringL $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eS ++ "` must flow to the table label"))
         dependencyCheck _ fieldS = error $ "Could not find field `" ++ fieldS ++ "`"
 
         mkBody = do
           conditions <- foldM dependencyCheck (TupE []) $ lEntityDependencyFields ent
           return $ NormalB $ 
             AppE (VarE 'force) $
-            LetE [ValD (VarP tlName) (NormalB (SigE (AppE (VarE 'tableLabel) (ConE 'Proxy)) labelType)) []] $
+            LetE [ValD (VarP tlName) (NormalB (SigE (AppE (VarE 'tableLabel) (SigE (ConE 'Proxy) (AppT (ConT ''Proxy) (ConT (eName))))) labelType)) []] $
             conditions
 
-        eName = lEntityHaskell ent
-        fName = mkName $ "invariant" ++ eName
+        eS = lEntityHaskell ent
+        eName = mkName eS
+        fName = mkName $ "invariant" ++ eS
         tlName = mkName "tl"
 
 -- We can derive this in 8.0.1
