@@ -512,6 +512,9 @@ mkProtectedEntityInstance labelType ent = do
         eId = mkName "_eId"
         entity = mkName "_entity"
 
+        -- Skip labels that match table label.
+        mkLabelStmts anns acc | anns == lEntityLabelAnnotations ent = 
+            acc
         mkLabelStmts anns acc = 
             let vName = lFieldLabelVarName eName anns in
             let fName = lFieldLabelName eName anns in
@@ -525,11 +528,11 @@ mkProtectedEntityInstance labelType ent = do
             let setter = mkName $ 'p':(eName ++ (headToUpper fName))
             let newF = (setter, VarE vName)
             let newS acc = sAcc $ if isFieldLabeled ent field then
-                    LetE [ValD (VarP vName) (NormalB (AppE (VarE getter) (VarE e))) []] acc
-                  else
                     let anns = lFieldLabelAnnotations field in
                     let lName = lFieldLabelVarName eName anns in
                     LetE [ValD (VarP vName) (NormalB (AppE (AppE (ConE 'Labeled) (VarE lName)) (AppE (VarE getter) (VarE e)))) []] acc
+                  else
+                    LetE [ValD (VarP vName) (NormalB (AppE (VarE getter) (VarE e))) []] acc
             return ( newS, (newF:fAcc))
 
                     
@@ -628,6 +631,7 @@ mkInvariantChecks labelType ent = do
 
     where
         dependencyCheck acc fieldS | Just field <- Map.lookup fieldS (lEntityFields ent) = do
+            -- JP: Could just use field label' functions.
             la <- lift $ lFieldLabelAnnotations field
             return $ CondE 
                 (AppE (AppE (VarE 'canFlowTo) (AppE (VarE 'toConstantLabelAnnotation) la)) (VarE tlName)) 
