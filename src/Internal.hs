@@ -126,8 +126,8 @@ toLEntityDef defaultLabel ent =
         insertFields LAId acc = acc
         insertFields (LAConst _) acc = acc
         insertFields (LAField s) acc = Set.insert s acc
-        insertFields (LAMeet _ _) acc = acc
-        insertFields (LAJoin _ _) acc = acc
+        insertFields (LAMeet a b) acc = insertFields a $ insertFields b acc
+        insertFields (LAJoin a b) acc = insertFields a $ insertFields b acc
 
 
         -- JP: Do we need to sort the labels?
