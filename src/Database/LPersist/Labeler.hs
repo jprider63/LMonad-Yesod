@@ -11,7 +11,7 @@ import Data.Proxy (Proxy(..))
 import qualified Data.Text as Text
 import Database.Persist.Types
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax (Lift(..))
+-- import Language.Haskell.TH.Syntax (Lift(..))
 import Prelude
 
 import Database.LPersist
@@ -630,13 +630,17 @@ mkInvariantChecks labelType ent = do
     return $ [typ, fun]
 
     where
-        dependencyCheck acc fieldS | Just field <- Map.lookup fieldS (lEntityFields ent) = do
-            -- JP: Could just use field label' functions.
-            la <- lift $ lFieldLabelAnnotations field
-            return $ CondE 
-                (AppE (AppE (VarE 'canFlowTo) (AppE (VarE 'toConstantLabelAnnotation) la)) (VarE tlName)) 
-                acc 
-                (AppE (VarE 'error) (LitE $ StringL $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eS ++ "` must flow to the table label"))
+        dependencyCheck acc fieldS | Just field <- Map.lookup fieldS (lEntityFields ent) = 
+            -- Check that field is constant.
+            let la@(c,i) = lFieldLabelAnnotations field in
+            if not (isLabelAnnotationConstant c && isLabelAnnotationConstant i) then
+                error $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eS ++ "` must be constant"
+            else
+                let fName' = lFieldLabelName' (lEntityHaskell ent) la in
+                return $ CondE 
+                    (AppE (AppE (VarE 'canFlowTo) (VarE fName')) (VarE tlName)) 
+                    acc 
+                    (AppE (VarE 'error) (LitE $ StringL $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eS ++ "` must flow to the table label"))
         dependencyCheck _ fieldS = error $ "Could not find field `" ++ fieldS ++ "`"
 
         mkBody = do
@@ -651,26 +655,26 @@ mkInvariantChecks labelType ent = do
         fName = mkName $ "invariant" ++ eS
         tlName = mkName "tl"
 
--- We can derive this in 8.0.1
-instance Lift LabelAnnotation where
-    lift LABottom = conE 'LABottom
-    lift LATop = conE 'LATop
-    lift LAId = conE 'LAId
-    lift (LAConst s) = appE (conE 'LAConst) (lift s)
-    lift (LAField s) = appE (conE 'LAField) (lift s)
-    lift (LAMeet a b) = appE (appE (conE 'LAMeet) (lift a)) (lift b)
-    lift (LAJoin a b) = appE (appE (conE 'LAJoin) (lift a)) (lift b)
-
-toConstantLabelAnnotation :: (Label l, ToLabel String l, ToLabel Lattice l) => (LabelAnnotation, LabelAnnotation) -> l
-toConstantLabelAnnotation l@(c,i) = helper toConfidentialityLabel c `lub` helper toIntegrityLabel i
-
-    where
-        helper :: (Label l, ToLabel String l, ToLabel Lattice l) => (forall s . ToLabel s l => s -> l) -> LabelAnnotation -> l
-        helper _ LAId = error $ "Not a constant label: " ++ show l
-        helper _ (LAField _) = error $ "Not a constant label: " ++ show l
-        helper f (LAConst s) = f s
-        helper f LABottom = f Bottom
-        helper f LATop = f Top
-        helper f (LAMeet a b) = helper f a `glb` helper f b
-        helper f (LAJoin a b) = helper f a `lub` helper f b
+-- -- We can derive this in 8.0.1
+-- instance Lift LabelAnnotation where
+--     lift LABottom = conE 'LABottom
+--     lift LATop = conE 'LATop
+--     lift LAId = conE 'LAId
+--     lift (LAConst s) = appE (conE 'LAConst) (lift s)
+--     lift (LAField s) = appE (conE 'LAField) (lift s)
+--     lift (LAMeet a b) = appE (appE (conE 'LAMeet) (lift a)) (lift b)
+--     lift (LAJoin a b) = appE (appE (conE 'LAJoin) (lift a)) (lift b)
+-- 
+-- toConstantLabelAnnotation :: (Label l, ToLabel String l, ToLabel Lattice l) => (LabelAnnotation, LabelAnnotation) -> l
+-- toConstantLabelAnnotation l@(c,i) = helper toConfidentialityLabel c `lub` helper toIntegrityLabel i
+-- 
+--     where
+--         helper :: (Label l, ToLabel String l, ToLabel Lattice l) => (forall s . ToLabel s l => s -> l) -> LabelAnnotation -> l
+--         helper _ LAId = error $ "Not a constant label: " ++ show l
+--         helper _ (LAField _) = error $ "Not a constant label: " ++ show l
+--         helper f (LAConst s) = f s
+--         helper f LABottom = f Bottom
+--         helper f LATop = f Top
+--         helper f (LAMeet a b) = helper f a `glb` helper f b
+--         helper f (LAJoin a b) = helper f a `lub` helper f b
 
