@@ -37,6 +37,7 @@ module Database.LPersist (
     , insert_
     , insertMany
     , insertKey
+    , pInsert
 --    , repsert
     , replace
     , delete
@@ -62,6 +63,7 @@ module Database.LPersist (
 import Control.Exception.Lifted (throwIO)
 import Control.Monad
 import Control.Monad.Reader (ReaderT)
+import qualified Control.Monad.Trans.State as ST
 import Data.Proxy
 import Database.Persist (Entity(..),EntityField(..),PersistStore,PersistEntity,PersistEntityBackend, Key, Update(..), Unique, PersistUnique, SelectOpt, Filter(..), PersistQuery, SelectOpt(..))
 import qualified Database.Persist as Persist
@@ -168,6 +170,7 @@ lDefaultRunDB getConfig getPool f = do
 get :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => Key v -> ReaderT backend (LMonadT l m) (Maybe v)
 get key = do
     let tLabel = tableLabel (Proxy :: Proxy v)
+    -- Key label equals table label, so we don't need to check it.
     res <- Persist.get key
     lift $ taintLabel $ maybe 
         tLabel
@@ -180,17 +183,56 @@ pGet key = do
     res <- Persist.get key
     return $ fmap (toProtectedTCB . Entity key) res
 
-insert :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => v -> ReaderT backend (LMonadT l m) (Key v)
-insert val = do
+-- Helper function for inserts.
+insertHelper :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => v -> ReaderT backend (LMonadT l m) (Key v)
+insertHelper val = do
     let tLabel = tableLabel (Proxy :: Proxy v)
-    c <- lift getClearance
-    lift $ guardCanFlowTo tLabel c
-    l <- lift getCurrentLabel
-    lift $ guardCanFlowTo l tLabel
+    lift $ guardAlloc tLabel
+
     k <- Persist.insert val
     let e = Entity k val
-    mapM_ (\j -> guardCanFlowToRollback l j >> guardCanFlowToRollback j c) $ getFieldLabels e
+    mapM_ guardAllocRollback $ getFieldLabels e
     return k
+
+insert :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => v -> ReaderT backend (LMonadT l m) (Key v)
+insert val = do
+    -- Insert value.
+    k <- insertHelper val
+
+    -- Raise to table label since we're reading key.
+    -- JP: Should we rollback?
+    lift $ taintLabel $ tableLabel (Proxy :: Proxy v)
+
+    return k
+
+-- Helper function for protected inserts.
+pInsertHelper :: forall m l e . (MonadIO m, LMonad m, Label l, LEntity l e, ProtectedEntity l e, PersistEntity e, PersistEntityBackend e ~ SqlBackend) => Protected e -> ReaderT SqlBackend (LMonadT l m) (Key e)
+pInsertHelper p = do
+    let tLabel = tableLabel (Proxy :: Proxy e)
+    lift $ guardAlloc tLabel
+
+    k <- Persist.insert $ fromProtectedTCB p
+    let pe = PEntity k p
+
+    -- Rollback if cannot insert.
+    succ <- lift $ canAllocProtected pe
+    unless succ $ 
+        rollback
+
+    return k
+
+pInsert :: forall m l e . (MonadIO m, LMonad m, Label l, LEntity l e, ProtectedEntity l e, PersistEntity e, PersistEntityBackend e ~ SqlBackend) => Protected e -> ReaderT SqlBackend (LMonadT l m) (Key e)
+pInsert val = do
+    -- Insert value.
+    k <- pInsertHelper val
+
+    -- Raise to table label since we're reading key.
+    -- JP: Should we rollback?
+    lift $ taintLabel $ tableLabel (Proxy :: Proxy e)
+
+    return k
+
+------ Done ------
 
 insert_ :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => v -> ReaderT backend (LMonadT l m) ()
 insert_ val = do
@@ -490,11 +532,28 @@ guardCanFlowTo a b = LMonadT $
     unless (a `canFlowTo` b) $
         lift lFail
 
+guardAlloc :: (Label l, LMonad m) => l -> LMonadT l m ()
+guardAlloc l = LMonadT $ do
+    (LState label clearance) <- ST.get
+    unless (canFlowTo label l && canFlowTo l clearance) $
+        lift lFail
+
+-- Rollback and LMonad fail.
+rollback :: (Label l, LMonad m, MonadIO m) => ReaderT SqlBackend (LMonadT l m) ()
+rollback = do
+    Persist.transactionUndo
+    lift $ LMonadT $ lift lFail
+
+guardAllocRollback :: (Label l, LMonad m, MonadIO m) => l -> ReaderT SqlBackend (LMonadT l m) ()
+guardAllocRollback l = do
+    (LState label clearance) <- lift $ LMonadT ST.get
+    unless (canFlowTo label l && canFlowTo l clearance) $
+        rollback
+
 guardCanFlowToRollback :: (MonadIO m, LMonad m, Label l) => l -> l -> ReaderT SqlBackend (LMonadT l m) ()
 guardCanFlowToRollback a b =
     unless (a `canFlowTo` b) $ do
-        Persist.transactionUndo
-        lift $ LMonadT $ lift lFail
+        rollback
 
 updateHelper :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => (LMonadT l m a) -> (v -> LMonadT l m a) -> (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) a
 updateHelper n j key updates = do
