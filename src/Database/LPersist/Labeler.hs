@@ -15,6 +15,7 @@ import Language.Haskell.TH.Syntax (Lift(..))
 import Prelude
 
 import Database.LPersist
+import Database.LPersist.TCB
 import Internal
 import LMonad.TCB
 
@@ -495,13 +496,13 @@ mkLabelEntity' labelType ent =
 mkProtectedEntityInstance :: Type -> LEntityDef -> Q [Dec]
 mkProtectedEntityInstance labelType ent = do
     let labels = lEntityUniqueFieldLabelsAnnotations ent
-    let lStmts = map mkLabelStmts labels
-    ( fStmts, fExps) <- foldM (mkProtectedFieldInstance ent) ([],[]) $ lEntityFields ent
+    let lStmts acc = foldr mkLabelStmts acc labels
+    ( fStmts, fExps) <- foldM (mkProtectedFieldInstance ent) (id,[]) $ lEntityFields ent
     let recordCons = RecConE (mkName pName) fExps
-    let body = DoE $ lStmts ++ fStmts ++ [NoBindS (AppE (VarE (mkName "return")) recordCons)]
-    let toProtected = FunD (mkName "toProtected") [Clause [AsP entity (ConP (mkName "Entity") [VarP eId,VarP e])] (NormalB body) []]
-    let inst = InstanceD [] (AppT (AppT (ConT (mkName "ProtectedEntity")) labelType) (ConT (mkName eName))) [toProtected]
-    let typInst = TySynInstD (mkName "Protected") $ TySynEqn [ConT (mkName eName)] (ConT $ mkName pName)
+    let body = lStmts $ fStmts recordCons
+    let toProtected = FunD 'toProtectedTCB [Clause [AsP entity (ConP (mkName "Entity") [VarP eId,VarP e])] (NormalB body) []]
+    let inst = InstanceD [] (AppT (AppT (ConT ''ProtectedEntity) labelType) (ConT (mkName eName))) [toProtected]
+    let typInst = TySynInstD ''Protected $ TySynEqn [ConT (mkName eName)] (ConT $ mkName pName)
     return [inst, typInst]
 
     where
@@ -511,25 +512,25 @@ mkProtectedEntityInstance labelType ent = do
         eId = mkName "_eId"
         entity = mkName "_entity"
 
-        mkLabelStmts anns = 
+        mkLabelStmts anns acc = 
             let vName = lFieldLabelVarName eName anns in
             let fName = lFieldLabelName eName anns in
-            LetS [ValD (VarP vName) (NormalB (AppE (VarE fName) (VarE entity))) []]
+            LetE [ValD (VarP vName) (NormalB (AppE (VarE fName) (VarE entity))) []] acc
 
-        mkProtectedFieldInstance :: LEntityDef -> ([Stmt],[FieldExp]) -> LFieldDef -> Q ([Stmt],[FieldExp])
+        mkProtectedFieldInstance :: LEntityDef -> (Exp -> Exp, [FieldExp]) -> LFieldDef -> Q (Exp -> Exp, [FieldExp])
         mkProtectedFieldInstance ent (sAcc, fAcc) field = do
             let fName = lFieldHaskell field
             let getter = mkName $ (headToLower eName) ++ (headToUpper fName)
             vName <- newName "v"
             let setter = mkName $ 'p':(eName ++ (headToUpper fName))
             let newF = (setter, VarE vName)
-            let newS = if isFieldLabeled ent field then
-                    LetS [ValD (VarP vName) (NormalB (AppE (VarE getter) (VarE e))) []]
+            let newS acc = sAcc $ if isFieldLabeled ent field then
+                    LetE [ValD (VarP vName) (NormalB (AppE (VarE getter) (VarE e))) []] acc
                   else
                     let anns = lFieldLabelAnnotations field in
                     let lName = lFieldLabelVarName eName anns in
-                    LetS [ValD (VarP vName) (NormalB (AppE (AppE (ConE 'Labeled) (VarE lName)) (AppE (VarE getter) (VarE e)))) []]
-            return ( (newS:sAcc), (newF:fAcc))
+                    LetE [ValD (VarP vName) (NormalB (AppE (AppE (ConE 'Labeled) (VarE lName)) (AppE (VarE getter) (VarE e)))) []] acc
+            return ( newS, (newF:fAcc))
 
                     
 {-
