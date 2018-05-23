@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies, TypeFamilyDependencies #-}
 
 module Database.LPersist.TCB where
 
@@ -10,7 +10,7 @@ data PEntity l e = (ProtectedEntity l e) => PEntity (Key e) (Protected e)
 
 -- | Typeclass for protected entities.
 -- `mkLabels` automatically generates these instances.
-type family Protected e
+type family Protected e = p | p -> e
 class Label l => ProtectedEntity l e | e -> l where
     -- toProtected :: LMonad m => Entity e -> LMonadT l m (Protected e)
     -- TCB since we don't do any checks when labelling.
