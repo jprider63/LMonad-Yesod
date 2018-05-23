@@ -39,6 +39,7 @@ module Database.LPersist (
     , insertKey
     , pInsert
     , pInsert_
+    , pInsertMany
 --    , repsert
     , replace
     , delete
@@ -246,6 +247,13 @@ pInsert_ val = do
 insertMany :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => [v] -> ReaderT backend (LMonadT l m) [Key v]
 insertMany vals = mapM insert vals
 -- JP: There are some redundant checks we can get rid of.
+
+pInsertMany :: forall (t :: * -> *) (m :: * -> *) l e.
+    (PersistEntityBackend e ~ SqlBackend, LEntity l e,
+     ProtectedEntity l e, PersistEntity e, LMonad m, MonadIO m,
+     Traversable t) =>
+    t (Protected e) -> ReaderT SqlBackend (LMonadT l m) (t (Key e))
+pInsertMany vals = mapM pInsert vals
 
 ------ Done ------
 
