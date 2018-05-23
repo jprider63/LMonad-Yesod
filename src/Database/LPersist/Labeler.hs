@@ -85,14 +85,14 @@ mkLabelsWithDefault' labelS defaultLabel ents = do
 mkProtectedEntity :: Type -> LEntityDef -> Q Dec
 mkProtectedEntity labelType ent =
     let pFields = map mkProtectedField (Map.elems $ lEntityFields ent) in
-    return $ DataD [] pName [] [RecC pName pFields] []
+    return $ DataD [] pName [] Nothing [RecC pName pFields] []
 
     where
         eName = lEntityHaskell ent
         pName = mkName $ "Protected" ++ eName
         mkProtectedField field = 
             let fName = mkName $ 'p':(eName ++ (headToUpper (lFieldHaskell field))) in
-            let strict = if lFieldStrict field then IsStrict else NotStrict in
+            let strict = Bang NoSourceUnpackedness $ if lFieldStrict field then SourceStrict else NoSourceStrictness in
             let rawType = fieldTypeToType $ lFieldType field in
             let typ = 
                   -- If the field's label equals the table label, we don't need to wrap it in a Labeled.
@@ -149,7 +149,7 @@ mkLEntityInstance labelType ent = --, createLabels)) =
           -- , FunD (mkName "getCreateLabels") [Clause [pat] (NormalB cExpr) []]
           ]
     in
-    return $ InstanceD [] (AppT (AppT (ConT ''LEntity) labelType) (ConT (mkName eName))) funcs
+    return $ InstanceD Nothing [] (AppT (AppT (ConT ''LEntity) labelType) (ConT (mkName eName))) funcs
 
     where
         eName = lEntityHaskell ent
@@ -501,7 +501,7 @@ mkProtectedEntityInstance labelType ent = do
     let recordCons = RecConE (mkName pName) fExps
     let body = lStmts $ fStmts recordCons
     let toProtected = FunD 'toProtectedTCB [Clause [AsP entity (ConP (mkName "Entity") [VarP eId,VarP e])] (NormalB body) []]
-    let inst = InstanceD [] (AppT (AppT (ConT ''ProtectedEntity) labelType) (ConT (mkName eName))) [toProtected]
+    let inst = InstanceD Nothing [] (AppT (AppT (ConT ''ProtectedEntity) labelType) (ConT (mkName eName))) [toProtected]
     let typInst = TySynInstD ''Protected $ TySynEqn [ConT (mkName eName)] (ConT $ mkName pName)
     return [inst, typInst]
 
