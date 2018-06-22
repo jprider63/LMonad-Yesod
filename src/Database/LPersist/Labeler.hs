@@ -11,7 +11,7 @@ import Data.Proxy (Proxy(..))
 import qualified Data.Text as Text
 import Database.Persist.Types
 import Language.Haskell.TH
--- import Language.Haskell.TH.Syntax (Lift(..))
+import Language.Haskell.TH.Syntax (Lift(..))
 import Prelude
 
 import Database.LPersist
@@ -31,11 +31,13 @@ import LMonad.TCB
 --       UniqueEmail email
 --       deriving Typeable
 
-mkLabels :: String -> [EntityDef] -> Q [Dec]
-mkLabels labelS ents = mkLabelsWithDefault labelS (LABottom, LATop) ents
+mkLabels :: Proxy l -> [EntityDef] -> Q [Dec]
+mkLabels labelP ents = mkLabelsWithDefault labelP (LABottom, LATop) ents
 
-mkLabelsWithDefault :: String -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
-mkLabelsWithDefault labelS (defaultLabelL, defaultLabelR) ents = do
+mkLabelsWithDefault :: Proxy l -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
+mkLabelsWithDefault labelP (defaultLabelL, defaultLabelR) ents = do
+    labelType <- mkLabelType
+
     let entsL = map (toLEntityDef defaultLabel) ents
     invariantChecks <- mconcat <$> mapM (mkInvariantChecks labelType) entsL
     let labelFs' = concat $ map (mkLabelEntity' labelType) entsL
@@ -49,26 +51,37 @@ mkLabelsWithDefault labelS (defaultLabelL, defaultLabelR) ents = do
     where
         defaultLabel = (canonicalLabelAnnotationOrder defaultLabelL, canonicalLabelAnnotationOrder defaultLabelR)
 
-        labelType = 
-            case Text.words $ Text.pack labelS of
-                [] ->
-                    error $ "Label `" ++ labelS ++ "` not found"
-                conT:rest ->
-                    if Text.length conT <= 1 || Char.isLower (Text.head conT) then
-                        error $ "Invalid label type constructor `" ++ (Text.unpack conT) ++ "`"
-                    else
-                        let con = ConT $ mkName $ Text.unpack conT in
-                        List.foldl' (\acc typ -> AppT acc (ConT (mkName (Text.unpack typ)))) con rest
+        mkLabelType = do
+            exp <- lift labelP
+            let pTyp = case exp of
+                  SigE _ proxyT -> proxyT
+                  _ -> error $ "Unknown label expression: " ++ show exp
+            case pTyp of
+                AppT (ConT p) t | p == ''Proxy ->
+                    return t
+                _ ->
+                    error $ "Unknown label type: " ++ show pTyp
+
+        -- labelType = 
+        --     case Text.words $ Text.pack labelS of
+        --         [] ->
+        --             error $ "Label `" ++ labelS ++ "` not found"
+        --         conT:rest ->
+        --             if Text.length conT <= 1 || Char.isLower (Text.head conT) then
+        --                 error $ "Invalid label type constructor `" ++ (Text.unpack conT) ++ "`"
+        --             else
+        --                 let con = ConT $ mkName $ Text.unpack conT in
+        --                 List.foldl' (\acc typ -> AppT acc (ConT (mkName (Text.unpack typ)))) con rest
 
 
 
 -- | Helper function that prints out the code generated at compilation.
-mkLabels' :: String -> [EntityDef] -> Q [Dec]
-mkLabels' labelS ents = mkLabelsWithDefault' labelS (LABottom, LATop) ents
+mkLabels' :: Proxy l -> [EntityDef] -> Q [Dec]
+mkLabels' labelP ents = mkLabelsWithDefault' labelP (LABottom, LATop) ents
 
-mkLabelsWithDefault' :: String -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
-mkLabelsWithDefault' labelS defaultLabel ents = do
-    labels <- mkLabelsWithDefault labelS defaultLabel ents
+mkLabelsWithDefault' :: Proxy l -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
+mkLabelsWithDefault' labelP defaultLabel ents = do
+    labels <- mkLabelsWithDefault labelP defaultLabel ents
     fail $ show $ pprint labels
 
 

@@ -85,6 +85,7 @@ import Internal
 class (Label l) => LEntity l e where
     getFieldLabels :: Entity e -> [l]
 
+    -- Get the labels of all the entity's dependency labels.
     getDependencyLabelsLabels :: Proxy e -> [l]
 
     -- getReadLabels :: Entity e -> [l]
