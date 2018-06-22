@@ -85,6 +85,8 @@ import Internal
 class (Label l) => LEntity l e where
     getFieldLabels :: Entity e -> [l]
 
+    getDependencyLabelsLabels :: Proxy e -> [l]
+
     -- getReadLabels :: Entity e -> [l]
     -- getWriteLabels :: Entity e -> [l]
     -- getCreateLabels :: e -> [l]
@@ -144,9 +146,11 @@ updateToFields :: forall l e . (LPersistEntity l e) => Update e -> [Entity e -> 
 updateToFields (Update field _ _) = map lPersistFieldLabel $ lPersistReadLabelDependencies field
 updateToFields (BackendUpdate _) = error "updateToFields: Unsupported backend specific update."
 
--- | Gets the join of all the fields of an `Entity`.
-getEntityLabel :: LEntity l e => Entity e -> l
-getEntityLabel = joinLabels . getFieldLabels
+-- | Gets the join of all the fields of an `Entity` and the table label.
+getEntityLabel :: forall l e . LEntity l e => Entity e -> l
+getEntityLabel = joinLabels tLabel . getFieldLabels
+    where
+        tLabel = tableLabel (Proxy :: Proxy e)
 
 -- raiseLabelRead :: (Label l, LMonad m, LEntity l e) => Entity e -> LMonadT l m ()
 -- raiseLabelRead e = taintLabel $ getLabelRead e
@@ -176,7 +180,7 @@ get key = do
     res <- Persist.get key
     lift $ taintLabel $ maybe 
         tLabel
-        (\v -> tLabel `lub` (getEntityLabel $ Entity key v)) res
+        (\v -> getEntityLabel $ Entity key v) res
     return res
 
 pGet :: forall l m v backend . (ProtectedEntity l v, LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistStoreRead backend, PersistEntity v) => Key v -> ReaderT backend (LMonadT l m) (Maybe (Protected v))
@@ -210,7 +214,12 @@ insert val = do
 -- Helper function for protected inserts.
 pInsertHelper :: forall m l e . (MonadIO m, LMonad m, Label l, LEntity l e, ProtectedEntity l e, PersistEntity e, PersistEntityBackend e ~ SqlBackend) => Protected e -> ReaderT SqlBackend (LMonadT l m) (Key e)
 pInsertHelper p = do
-    let tLabel = tableLabel (Proxy :: Proxy e)
+    -- Taint label to dependency label labels.
+    let pr = Proxy :: Proxy e
+    lift $ taintLabels $ getDependencyLabelsLabels pr
+
+    -- Guard write.
+    let tLabel = tableLabel pr
     lift $ guardAlloc tLabel
 
     k <- Persist.insert $ fromProtectedTCB p
@@ -304,12 +313,11 @@ updateGet :: forall backend l m v . (backend ~ SqlBackend, LMonad m, Label l, LE
 updateGet key = updateHelper err f key
     where
         f e = do
-            taintLabel $ tLabel `lub` (getEntityLabel $ Entity key e)
+            taintLabel $ getEntityLabel $ Entity key e
             return e
 
-        tLabel = tableLabel (Proxy :: Proxy v)
         err = do
-            taintLabel tLabel
+            taintLabel $ tableLabel (Proxy :: Proxy v)
             liftIO $ throwIO $ Persist.KeyNotFound $ Prelude.show key
 
 pUpdateGet :: forall l m v backend . (backend ~ SqlBackend, ProtectedEntity l v, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, LPersistEntity l v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) (Protected v)
@@ -337,9 +345,9 @@ pGetJust key = pGet key >>= maybe err return
 
 getBy :: forall l m v backend . (PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistEntity v) => Unique v -> ReaderT backend (LMonadT l m) (Maybe (Entity v))
 getBy uniq = do
-    let tLabel = tableLabel (Proxy :: Proxy v)
     res <- Persist.getBy uniq
-    lift $ taintLabel $ maybe tLabel (\e -> tLabel `lub` getEntityLabel e) res
+    let tLabel = tableLabel (Proxy :: Proxy v)
+    lift $ taintLabel $ maybe tLabel getEntityLabel res
     return res
 
 pGetBy :: forall l m v backend . (ProtectedEntity l v, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, LPersistEntity l v, PersistEntityBackend v ~ BaseBackend backend) => Unique v -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
@@ -351,7 +359,7 @@ pGetBy uniq = do
             taintLabel tLabel
             return Nothing
         Just e -> do
-            taintLabel $ lub tLabel $ joinLabels $ map ($ e) $ uniqueToFields uniq
+            taintLabel $ joinLabels tLabel $ map ($ e) $ uniqueToFields uniq
 
             return $ Just $ toProtectedWithKeyTCB e
 
@@ -435,13 +443,13 @@ deleteWhere filts = do
 selectFirst :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistEntity v, PersistQueryRead backend) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe (Entity v))
 selectFirst filts opts = do
     resM <- Persist.selectFirst filts opts
-    let tableL = tableLabel (Proxy :: Proxy v)
     lift $ case resM of
         Nothing -> do
+            let tableL = tableLabel (Proxy :: Proxy v)
             taintLabel tableL
             return resM
         Just res -> do
-            taintLabel $ tableL `lub` (getEntityLabel res)
+            taintLabel $ getEntityLabel res
             return resM
 
 pSelectFirst :: forall backend l m v . (LMonad m, Label l, LEntity l v, MonadIO m, LPersistEntity l v, ProtectedEntity l v, PersistEntityBackend v ~ BaseBackend backend, PersistQueryRead backend) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) (Maybe (PEntity l v))
@@ -458,7 +466,7 @@ pSelectFirst filts opts = do
             let lfs = concatMap filterToFields filts
             let los = concatMap selectOptToFields opts
             -- JP: Eliminate duplicates as optimization?
-            taintLabel $ lub tableL $ joinLabels $ map ($ e) los ++ map ($ e) lfs
+            taintLabel $ joinLabels tableL $ map ($ e) los ++ map ($ e) lfs
 
             return $ Just $ toProtectedWithKeyTCB e
 
@@ -468,7 +476,7 @@ count filts = do
 
     let tableL = tableLabel (Proxy :: Proxy v)
     let lfs = concatMap filterToFields filts
-    lift $ taintLabel $ lub tableL $ joinLabels $ concatMap (\e -> map ($ e) lfs) res
+    lift $ taintLabel $ joinLabels tableL $ concatMap (\e -> map ($ e) lfs) res
 
     return $ length res
 
@@ -486,7 +494,7 @@ count filts = do
 selectList :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistQueryRead backend, PersistEntity v) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [Entity v]
 selectList filts opts = do
     es <- Persist.selectList filts opts
-    lift $ taintLabel $ (tableLabel (Proxy :: Proxy v)) `lub` ( joinLabels $ map getEntityLabel es)
+    lift $ taintLabel ( joinLabels (tableLabel (Proxy :: Proxy v)) $ concatMap getFieldLabels es)
     return es
 
 pSelectList :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, LPersistEntity l v, ProtectedEntity l v, PersistEntityBackend v ~ BaseBackend backend, PersistQueryRead backend) => [Filter v] -> [SelectOpt v] -> ReaderT backend (LMonadT l m) [PEntity l v]
@@ -499,7 +507,7 @@ pSelectList filts opts = do
     res' <- Persist.selectList filts opts
 
     let (res, l) = foldr (\e (ps, l) -> 
-            let l' = lub l $ joinLabels $ map ($ e) los ++ map ($ e) lfs in
+            let l' = joinLabels l $ map ($ e) los ++ map ($ e) lfs in
             let ps' = (toProtectedWithKeyTCB e):ps in
             (ps', l')
           ) ([], tableL) res'
@@ -518,7 +526,7 @@ selectKeysList filts opts = do
     -- JP: Eliminate duplicates as optimization?
 
     let (res, l) = foldr (\e (ps, l) -> 
-            let l' = lub l $ joinLabels $ map ($ e) los ++ map ($ e) lfs in
+            let l' = joinLabels l $ map ($ e) los ++ map ($ e) lfs in
             let ps' = (entityKey e):ps in
             (ps', l')
           ) ([], tableL) res'

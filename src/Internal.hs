@@ -405,9 +405,10 @@ lFieldLabelName eName = mkName . lNameHelper' ( "label" ++ eName)
 -- lFieldCreateLabelName :: String -> [LabelAnnotation] -> Name
 -- lFieldCreateLabelName eName = mkName . lNameHelper' ( "createLabel" ++ eName)
 
-joinLabels :: Label l => [l] -> l
-joinLabels [] = bottom -- JP: Default label?
-joinLabels (h:t) = List.foldr (\l acc -> l `lub` acc) h t
+joinLabels :: Label l => l -> [l] -> l
+joinLabels acc ls = List.foldr (\l acc -> l `lub` acc) acc ls
+-- joinLabels [] = bottom -- JP: Default label?
+-- joinLabels (h:t) = List.foldr (\l acc -> l `lub` acc) h t
 -- joinLabels [] = bottom
 -- joinLabels [l] = l
 -- joinLabels (h:t) = h `lub` joinLabels t
