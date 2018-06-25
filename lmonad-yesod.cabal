@@ -51,6 +51,7 @@ library
     , Database.LPersist.TCB
     , Database.LPersist.TH
     , LMonad.Yesod
+    , PhantomType
   
   -- Modules included in this library but not exported.
   other-modules:       
@@ -82,6 +83,7 @@ library
     , esqueleto
     , hashable
     , haskell-src-meta
+    , keys
     , lifted-base
     , lmonad
     , mtl
@@ -90,6 +92,7 @@ library
     , tagged
     , template-haskell
     , text
+    , th-lift
     , transformers
     , yesod-core
     , yesod-persistent

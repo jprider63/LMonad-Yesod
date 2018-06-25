@@ -1,23 +1,24 @@
-{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, OverloadedStrings, PatternGuards, FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell, MultiParamTypeClasses, OverloadedStrings, PatternGuards, FlexibleContexts, ScopedTypeVariables, TypeApplications #-}
 
-module Database.LPersist.Labeler (mkLabels, mkLabels', mkLabelsWithDefault, mkLabelsWithDefault') where
+module Database.LPersist.Labeler (mkLabels, mkLabels', mkLabelsWithDefault, mkLabelsWithDefault', phantomType, PhantomType) where
 
-import Control.DeepSeq (force)
+-- import Control.DeepSeq (force)
 import Control.Monad
-import qualified Data.Char as Char
+import Data.Key
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
 import qualified Data.Text as Text
 import Database.Persist.Types
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax (Lift(..))
+-- import Language.Haskell.TH.Syntax (Lift(..))
 import Prelude
 
 import Database.LPersist
 import Database.LPersist.TCB
 import Internal
 import LMonad.TCB
+import PhantomType
 
 -- | Functions that use TH to generate labeling code. 
 -- All examples in this documentation reference the following Persist model:
@@ -31,36 +32,34 @@ import LMonad.TCB
 --       UniqueEmail email
 --       deriving Typeable
 
-mkLabels :: Proxy l -> [EntityDef] -> Q [Dec]
+mkLabels :: (ToLabel String l, ToLabel Lattice l, Label l)=> PhantomType l -> [EntityDef] -> Q [Dec]
 mkLabels labelP ents = mkLabelsWithDefault labelP (LABottom, LATop) ents
 
-mkLabelsWithDefault :: Proxy l -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
-mkLabelsWithDefault labelP (defaultLabelL, defaultLabelR) ents = do
-    labelType <- mkLabelType
-
+mkLabelsWithDefault :: forall l . (ToLabel String l, ToLabel Lattice l, Label l) => PhantomType l -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
+mkLabelsWithDefault (PhantomType labelType) (defaultLabelL, defaultLabelR) ents = do
     let entsL = map (toLEntityDef defaultLabel) ents
-    invariantChecks <- mconcat <$> mapM (mkInvariantChecks labelType) entsL
+    mapM_ (runInvariantChecks (Proxy @l)) entsL
     let labelFs' = concat $ map (mkLabelEntity' labelType) entsL
     let labelFs = concat $ map (mkLabelEntity labelType) entsL
     lEntityInstance <- mapM (mkLEntityInstance labelType) entsL
     protected <- mapM (mkProtectedEntity labelType) entsL
     protectedInstance <- mconcat <$> mapM (mkProtectedEntityInstance labelType) entsL
 --    let serializedLEntityDef = mkSerializedLEntityDefs entsL
-    return $ concat [ labelFs', invariantChecks, labelFs, lEntityInstance, protected, protectedInstance] -- , serializedLEntityDef, concat labelFs,
+    return $ concat [ labelFs', labelFs, lEntityInstance, protected, protectedInstance] -- , serializedLEntityDef, concat labelFs,
 
     where
         defaultLabel = (canonicalLabelAnnotationOrder defaultLabelL, canonicalLabelAnnotationOrder defaultLabelR)
 
-        mkLabelType = do
-            exp <- lift labelP
-            let pTyp = case exp of
-                  SigE _ proxyT -> proxyT
-                  _ -> error $ "Unknown label expression: " ++ show exp
-            case pTyp of
-                AppT (ConT p) t | p == ''Proxy ->
-                    return t
-                _ ->
-                    error $ "Unknown label type: " ++ show pTyp
+        -- mkLabelType = do
+        --     exp <- lift labelP
+        --     let pTyp = case exp of
+        --           SigE _ proxyT -> proxyT
+        --           _ -> error $ "Unknown label expression: " ++ show exp
+        --     case pTyp of
+        --         AppT (ConT p) t | p == ''Proxy ->
+        --             return t
+        --         _ ->
+        --             error $ "Unknown label type: " ++ show pTyp
 
         -- labelType = 
         --     case Text.words $ Text.pack labelS of
@@ -76,10 +75,10 @@ mkLabelsWithDefault labelP (defaultLabelL, defaultLabelR) ents = do
 
 
 -- | Helper function that prints out the code generated at compilation.
-mkLabels' :: Proxy l -> [EntityDef] -> Q [Dec]
+mkLabels' :: (ToLabel String l, ToLabel Lattice l, Label l)=> PhantomType l -> [EntityDef] -> Q [Dec]
 mkLabels' labelP ents = mkLabelsWithDefault' labelP (LABottom, LATop) ents
 
-mkLabelsWithDefault' :: Proxy l -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
+mkLabelsWithDefault' :: (ToLabel String l, ToLabel Lattice l, Label l) => PhantomType l -> (LabelAnnotation, LabelAnnotation) -> [EntityDef] -> Q [Dec]
 mkLabelsWithDefault' labelP defaultLabel ents = do
     labels <- mkLabelsWithDefault labelP defaultLabel ents
     fail $ show $ pprint labels
@@ -622,7 +621,7 @@ getLEntityFieldType ent fName =
     fieldTypeToType $ lFieldType $ def
 
 
--- Create startup check that each dependent label can flow to the table label.
+-- Run checks that each dependent label can flow to the table label.
 -- invariantUser = 
 --     let tl = tableLabel (Proxy :: Proxy User) in
 --     ()
@@ -633,40 +632,58 @@ getLEntityFieldType ent fName =
 --     else
 --         error "Field ADependentField's label must flow to the table label since it is a dependency."
 --     
-mkInvariantChecks :: Type -> LEntityDef -> Q [Dec]
-mkInvariantChecks labelType ent = do
-
-    let typ = SigD fName (ConT ''())
-    body <- mkBody
-    let fun = FunD fName [Clause [] body []]
-
-    return $ [typ, fun]
+runInvariantChecks :: forall l . (ToLabel String l, Label l, ToLabel Lattice l) => Proxy l -> LEntityDef -> Q ()
+runInvariantChecks Proxy ent = 
+    mapWithKeyM_ invariantCheck $ lEntityFields ent
 
     where
-        dependencyCheck acc fieldS | Just field <- Map.lookup fieldS (lEntityFields ent) = 
+        tableLabel :: l
+        tableLabel = toConstantLabel $ lEntityLabelAnnotations ent
+
+        invariantCheck name field = do
             -- Check that field is constant.
-            let la@(c,i) = lFieldLabelAnnotations field in
-            if not (isLabelAnnotationConstant c && isLabelAnnotationConstant i) then
-                error $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eS ++ "` must be constant"
-            else
-                let fName' = lFieldLabelName' (lEntityHaskell ent) la in
-                return $ CondE 
-                    (AppE (AppE (VarE 'canFlowTo) (VarE fName')) (VarE tlName)) 
-                    acc 
-                    (AppE (VarE 'error) (LitE $ StringL $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eS ++ "` must flow to the table label"))
-        dependencyCheck _ fieldS = error $ "Could not find field `" ++ fieldS ++ "`"
+            let la@(c, i) = lFieldLabelAnnotations field
+            unless (isConstantLabel c && isConstantLabel i) $
+                error $ "Label for field `" ++ name ++ "` is not constant."
 
-        mkBody = do
-          conditions <- foldM dependencyCheck (TupE []) $ lEntityDependencyFields ent
-          return $ NormalB $ 
-            AppE (VarE 'force) $
-            LetE [ValD (VarP tlName) (NormalB (SigE (AppE (VarE 'tableLabel) (SigE (ConE 'Proxy) (AppT (ConT ''Proxy) (ConT (eName))))) labelType)) []] $
-            conditions
+            -- Check that field label can flow to table label.
+            let fieldLabel = toConstantLabel la
+            unless (fieldLabel `canFlowTo` tableLabel) $
+                error $ "Label for field `" ++ name ++ "` does not flow to the table label."
 
-        eS = lEntityHaskell ent
-        eName = mkName eS
-        fName = mkName $ "invariant" ++ eS
-        tlName = mkName "tl"
+
+
+--     let typ = SigD fName (ConT ''())
+--     body <- mkBody
+--     let fun = FunD fName [Clause [] body []]
+-- 
+--     return $ [typ, fun]
+-- 
+--     where
+--         dependencyCheck acc fieldS | Just field <- Map.lookup fieldS (lEntityFields ent) = 
+--             -- Check that field is constant.
+--             let la@(c,i) = lFieldLabelAnnotations field in
+--             if not (isLabelAnnotationConstant c && isLabelAnnotationConstant i) then
+--                 error $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eS ++ "` must be constant"
+--             else
+--                 let fName' = lFieldLabelName' (lEntityHaskell ent) la in
+--                 return $ CondE 
+--                     (AppE (AppE (VarE 'canFlowTo) (VarE fName')) (VarE tlName)) 
+--                     acc 
+--                     (AppE (VarE 'error) (LitE $ StringL $ "The label of field `" ++ fieldS ++ "` of entity `" ++ eS ++ "` must flow to the table label"))
+--         dependencyCheck _ fieldS = error $ "Could not find field `" ++ fieldS ++ "`"
+-- 
+--         mkBody = do
+--           conditions <- foldM dependencyCheck (TupE []) $ lEntityDependencyFields ent
+--           return $ NormalB $ 
+--             AppE (VarE 'force) $
+--             LetE [ValD (VarP tlName) (NormalB (SigE (AppE (VarE 'tableLabel) (SigE (ConE 'Proxy) (AppT (ConT ''Proxy) (ConT (eName))))) labelType)) []] $
+--             conditions
+-- 
+--         eS = lEntityHaskell ent
+--         eName = mkName eS
+--         fName = mkName $ "invariant" ++ eS
+--         tlName = mkName "tl"
 
 -- -- We can derive this in 8.0.1
 -- instance Lift LabelAnnotation where
@@ -677,17 +694,26 @@ mkInvariantChecks labelType ent = do
 --     lift (LAField s) = appE (conE 'LAField) (lift s)
 --     lift (LAMeet a b) = appE (appE (conE 'LAMeet) (lift a)) (lift b)
 --     lift (LAJoin a b) = appE (appE (conE 'LAJoin) (lift a)) (lift b)
--- 
--- toConstantLabelAnnotation :: (Label l, ToLabel String l, ToLabel Lattice l) => (LabelAnnotation, LabelAnnotation) -> l
--- toConstantLabelAnnotation l@(c,i) = helper toConfidentialityLabel c `lub` helper toIntegrityLabel i
--- 
---     where
---         helper :: (Label l, ToLabel String l, ToLabel Lattice l) => (forall s . ToLabel s l => s -> l) -> LabelAnnotation -> l
---         helper _ LAId = error $ "Not a constant label: " ++ show l
---         helper _ (LAField _) = error $ "Not a constant label: " ++ show l
---         helper f (LAConst s) = f s
---         helper f LABottom = f Bottom
---         helper f LATop = f Top
---         helper f (LAMeet a b) = helper f a `glb` helper f b
---         helper f (LAJoin a b) = helper f a `lub` helper f b
+
+isConstantLabel :: LabelAnnotation -> Bool
+isConstantLabel LABottom = True
+isConstantLabel LATop = True
+isConstantLabel LAId = False
+isConstantLabel (LAConst _) = True
+isConstantLabel (LAField _) = False
+isConstantLabel (LAMeet a b) = isConstantLabel a && isConstantLabel b
+isConstantLabel (LAJoin a b) = isConstantLabel a && isConstantLabel b
+
+toConstantLabel :: (Label l, ToLabel String l, ToLabel Lattice l) => (LabelAnnotation, LabelAnnotation) -> l
+toConstantLabel l@(c,i) = helper toConfidentialityLabel c `lub` helper toIntegrityLabel i
+
+    where
+        helper :: (Label l, ToLabel String l, ToLabel Lattice l) => (forall s . ToLabel s l => s -> l) -> LabelAnnotation -> l
+        helper _ LAId = error $ "Not a constant label: " ++ show l
+        helper _ (LAField _) = error $ "Not a constant label: " ++ show l
+        helper f (LAConst s) = f s
+        helper f LABottom = f Bottom
+        helper f LATop = f Top
+        helper f (LAMeet a b) = helper f a `glb` helper f b
+        helper f (LAJoin a b) = helper f a `lub` helper f b
 
