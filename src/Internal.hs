@@ -264,9 +264,10 @@ toLFieldDef defaultLabel f =
 
 -- Parse chevrons
 -- C = < L , L >
--- L = K | _ | ^
--- K = A || K | A
--- A = Id | Const name | Field name
+-- L = _ | ^ | J
+-- J = M \/ J | M
+-- M = A /\ M | A
+-- A = ( J ) | Id | Const name | Field name
 
 parseChevrons :: Text -> (LabelAnnotation,LabelAnnotation)
 parseChevrons s = case parseOnly parseC s of
@@ -290,25 +291,21 @@ parseChevrons s = case parseOnly parseC s of
 
         parseJ = do
             lm <- parseM
-            tail <- (do
+            (do
                 skipSpace
                 _ <- char '\\'
                 _ <- char '/'
-                parseJ
+                LAJoin lm <$> parseJ
               ) <|> (return lm)
-
-            return $ LAJoin lm tail
 
         parseM = do
             la <- parseA
-            tail <- (do
+            (do
                 skipSpace
                 _ <- char '/'
                 _ <- char '\\'
-                parseM
+                LAMeet la <$> parseM
               ) <|> (return la)
-
-            return $ LAMeet la tail
 
         parseA = do
             skipSpace
