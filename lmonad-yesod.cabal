@@ -83,7 +83,6 @@ library
     , esqueleto
     , hashable
     , haskell-src-meta
-    , keys
     , lifted-base
     , lmonad
     , mtl

@@ -4,7 +4,6 @@ module Database.LPersist.Labeler (mkLabels, mkLabels', mkLabelsWithDefault, mkLa
 
 -- import Control.DeepSeq (force)
 import Control.Monad
-import Data.Key
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
@@ -634,13 +633,18 @@ getLEntityFieldType ent fName =
 --     
 runInvariantChecks :: forall l . (ToLabel String l, Label l, ToLabel Lattice l) => Proxy l -> LEntityDef -> Q ()
 runInvariantChecks Proxy ent = 
-    mapWithKeyM_ invariantCheck $ lEntityFields ent
+    mapM_ invariantCheck $ lEntityDependencyFields ent
 
     where
         tableLabel :: l
         tableLabel = toConstantLabel $ lEntityLabelAnnotations ent
 
-        invariantCheck name field = do
+        -- Check if this is a dependency field.
+        invariantCheck name = do
+            let field = maybe 
+                  (error $ "Field `" ++ name ++ "` does not exist.")
+                  id
+                  $ Map.lookup name $ lEntityFields ent
             -- Check that field is constant.
             let la@(c, i) = lFieldLabelAnnotations field
             unless (isConstantLabel c && isConstantLabel i) $
