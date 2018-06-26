@@ -145,6 +145,7 @@ mkLEntityInstance labelType ent = --, createLabels)) =
 
     let tLabel = lEntityLabelAnnotations ent in
     -- Enforce invariant that tLabel is constant.
+    -- JP: This check is redundant (See `toLEntityDef` in Internal.hs).
     let tExpr = if isLabelAnnotationConstant (fst tLabel) && isLabelAnnotationConstant (snd tLabel) then
             mkExprConst tLabel 
           else
@@ -329,10 +330,18 @@ mkLabelEntity' :: Type -> LEntityDef -> [Dec]
 mkLabelEntity' labelType ent = -- , createLabels)) = 
     let labels' = lEntityUniqueFieldLabelsAnnotations ent in
 
-    let labelsD' = map mkLabelField' labels' in
+    -- Add table label if it doesn't exist.
+    -- JP: Should use a Set.
+    let tLabel = lEntityLabelAnnotations ent in
+    let labels'' = if List.elem tLabel labels' then
+            labels'
+          else
+            tLabel:labels'
+    in
+
+    let labelsD' = map mkLabelField' labels'' in
 
     concat labelsD'
-
 
 --     let (readLabels, writeLabels) = lEntityUniqueFieldLabelsAnnotations ent in
 --     let readD = map (mkLabelField' lFieldReadLabelName' toConfLabel) readLabels in
