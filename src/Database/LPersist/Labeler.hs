@@ -7,6 +7,7 @@ import Control.Monad
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Database.Persist.Types
 import Language.Haskell.TH
@@ -122,6 +123,9 @@ mkProtectedEntity labelType ent =
 -- instance LEntity (DCLabel Principal) User where
 --     getFieldLabels _e = [bottom, labelUserUser _e]
 --     tableLabel Proxy = bottom
+--
+--     getDependencyLabelsLabels Proxy =
+--         [labelUserIdNId']
 
 --
 --
@@ -156,6 +160,7 @@ mkLEntityInstance labelType ent = --, createLabels)) =
     let funcs = [
             FunD 'getFieldLabels [Clause [pat] (NormalB fExpr) []]
           , FunD 'tableLabel [Clause [ConP 'Proxy []] (NormalB tExpr) []]
+          , getDependencyLabelsLabelsF
           --   FunD (mkName "getReadLabels") [Clause [pat] (NormalB rExpr) []]
           -- , FunD (mkName "getWriteLabels") [Clause [pat] (NormalB wExpr) []]
           -- , FunD (mkName "getCreateLabels") [Clause [pat] (NormalB cExpr) []]
@@ -166,6 +171,11 @@ mkLEntityInstance labelType ent = --, createLabels)) =
     where
         eName = lEntityHaskell ent
         e = mkName "_entity"
+
+        getDependencyLabelsLabelsF = 
+            let fieldNameToLabelName name = lFieldLabelName' eName $ lFieldLabelAnnotations $ getLEntityFieldOrIdDef ent name in
+            let body = ListE $ fmap (VarE . fieldNameToLabelName) $ Set.toList $ lEntityDependencyFields ent in
+            FunD 'getDependencyLabelsLabels [Clause [ConP 'Proxy []] (NormalB body) []]
 
         -- mkExpr (read, write) = 
         --     let r = mkLabel read in
@@ -512,9 +522,6 @@ mkLabelEntity' labelType ent =
 --         let email = Labeled _labelUserAdminGLBemail (userEmail _e)
 --         let admin = userAdmin _e
 --         ProtectedUser ident password email admin
---
---     getDependencyLabelsLabels Proxy =
---         [labelUserIdNId]
 
 mkProtectedEntityInstance :: Type -> LEntityDef -> Q [Dec]
 mkProtectedEntityInstance labelType ent = do
