@@ -35,7 +35,7 @@ data LEntityDef = LEntityDef
 --     , lEntityDB      :: !String
 --     , lEntityId      :: !FieldDef
 --     , lEntityAttrs   :: ![Attr]
-    , lEntityFields  :: !(Map String LFieldDef)
+    , lEntityFields  :: !(Map String LFieldDef) -- Does not include id field. Maybe we should add it?
 --     , lEntityUniques :: ![UniqueDef]
 --     , lEntityForeigns:: ![ForeignDef]
 --     , lEntityDerives :: ![Text]
@@ -123,7 +123,7 @@ toLEntityDef defaultLabel ent =
         accTuple f (a, b) acc = f b $ f a acc
         insertFields LABottom acc = acc
         insertFields LATop acc = acc
-        insertFields LAId acc = acc
+        insertFields LAId acc = Set.insert "id" acc
         insertFields (LAConst _) acc = acc
         insertFields (LAField s) acc = Set.insert s acc
         insertFields (LAMeet a b) acc = insertFields a $ insertFields b acc

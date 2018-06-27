@@ -512,6 +512,9 @@ mkLabelEntity' labelType ent =
 --         let email = Labeled _labelUserAdminGLBemail (userEmail _e)
 --         let admin = userAdmin _e
 --         ProtectedUser ident password email admin
+--
+--     getDependencyLabelsLabels Proxy =
+--         [labelUserIdNId]
 
 mkProtectedEntityInstance :: Type -> LEntityDef -> Q [Dec]
 mkProtectedEntityInstance labelType ent = do
@@ -650,10 +653,8 @@ runInvariantChecks Proxy ent =
 
         -- Check if this is a dependency field.
         invariantCheck name = do
-            let field = maybe 
-                  (error $ "Field `" ++ name ++ "` does not exist.")
-                  id
-                  $ Map.lookup name $ lEntityFields ent
+            let field = getLEntityFieldOrIdDef ent name
+
             -- Check that field is constant.
             let la@(c, i) = lFieldLabelAnnotations field
             unless (isConstantLabel c && isConstantLabel i) $
