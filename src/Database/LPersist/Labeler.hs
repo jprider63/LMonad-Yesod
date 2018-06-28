@@ -126,6 +126,13 @@ mkProtectedEntity labelType ent =
 --
 --     getDependencyLabelsLabels Proxy =
 --         [labelUserIdNId']
+--     
+--     canAllocProtected (Protected k (PEntity (Labeled lUser user) ...)) = do
+--         c <- getClearance
+--         -- lc <- getCurrentLabel
+--         let _e = Entity K (User user) ... in
+--         let _labelUserId' = labelUserId _e in
+--         return $ k? && lUser `canFlowTo` labelUserId' && labelUserId' `canFlowTo` c && ...
 
 --
 --
@@ -172,6 +179,46 @@ mkLEntityInstance labelType ent = --, createLabels)) =
         eName = lEntityHaskell ent
         e = mkName "_entity"
 
+        canFlowToE e1 e2 = AppE (AppE (VarE 'canFlowTo) e1) e2
+        andE e1 e2 = AppE (AppE (VarE (mkName "&&")) e1) e2
+
+        canAllocProtectedF = 
+            let pattern = protectedEntityPattern ent in
+            let cV = mkName "_cc" in
+            let eV = mkName "_e" in
+            let fJust _ x Nothing = Just x 
+                fJust f x (Just t) = Just (f x t)
+            in
+            let checkE = 
+                  let me = foldr (\field acc -> 
+                          -- Skip if unprotected field. This is safe since we know lc `canFlowTo` l_T `canFlowTo` cc from previous check.
+                          case labeledVarNames ent field of
+                            Left _ ->
+                                acc
+                            Right ( lName, vName) ->
+                                let ltfiV = mkName $ "_ltfi" ++ eName ++ fName in
+                                let a = andE 
+                                        (canFlowToE (VarE liV) (VarE ltfiV))
+                                        (canFlowTo (VarE ltfiV) (VarE cV)) 
+                                in
+                                let labelFName = lFieldLabelName eName $ lFieldLabelAnnotations field in
+                                let x = LetE [ValD (VarP ltfiV) (NormalB $ AppE (VarE labelFName) (VarE eV)) []] a in
+                                fJust (\e acc -> andE acc e) x 
+                        ) Nothing (lEntityFields ent) 
+                  in
+                  case me of
+                    Nothing -> ConE 'True
+                    Just cE -> 
+                        let tE = foldr (\field acc -> AppE acc (VarE (fieldVarName eName fName)) (ConE (mkName eName))) $ lEntityFields ent in
+                        LetE [ValD (VarP eV) (NormalB $ AppE (AppE (ConE 'Entity) (VarE "_key")) tE) []] cE
+            in
+            let body = DoE [
+                    BindS (VarP $ cV) (VarE 'getClearance)
+                  , NoBindS (AppE (VarE 'return) checkE)
+                  ]
+            in
+            FunD 'canAllocProtected [Clause [pattern] (NormalB body) []]
+
         getDependencyLabelsLabelsF = 
             let fieldNameToLabelName name = lFieldLabelName' eName $ lFieldLabelAnnotations $ getLEntityFieldOrIdDef ent name in
             let body = ListE $ fmap (VarE . fieldNameToLabelName) $ Set.toList $ lEntityDependencyFields ent in
@@ -202,6 +249,35 @@ mkLEntityInstance labelType ent = --, createLabels)) =
         --             let name = mkName $ headToLower eName ++ headToUpper f in
         --             AppE acc (AppE (VarE name) (VarE e))
         --       ) (VarE fName) anns
+
+protectedEntityPattern :: LEntityDef -> Pat
+protectedEntityPattern ent = 
+    ConP 'PEntity [ VarE "_key", protectedPattern ent]
+
+protectedPattern :: LEntityDef -> Pat
+protectedPattern ent =
+    let fieldPs = map (\field -> case labeledVarNames ent field of
+            Left lName -> VarP lName
+            Right (lName, vName) -> ConP 'Labeled [VarP lName, vName]
+          ) $ Map.elems $ lEntityFields ent
+    in
+    ConP pName fieldPs
+
+    where
+        eName = lEntityHaskell ent
+        pName = mkName $ "Protected" ++ eName
+
+fieldVarName :: String -> String -> Name
+fieldVarName eName fName = mkName $ "_v" ++ eName ++ fName
+
+labeledVarNames :: LEntityDef -> LFieldDef -> Either Name (Name, Name)
+labeledVarNames ent field = 
+    let vName = fieldVarName eName fName in
+    if isFieldLabeled ent field then
+        let lName = mkName $ "_l" ++ eName ++ fName in
+        Right (lName, vName)
+    else
+        Left vName
 
 {-
 -- | Create LEntity instance for a given entity. Joins all field label calls
