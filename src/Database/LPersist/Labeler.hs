@@ -94,6 +94,12 @@ mkLabelsWithDefault' labelP defaultLabel ents = do
 --       , pUserAdmin :: Bool
 --     }
 
+protectedFieldName :: String -> String -> Name
+protectedFieldName eName fName = mkName $ 'p':(eName ++ (headToUpper fName))
+
+fieldName :: String -> String -> Name
+fieldName eName fName = mkName $ headToLower eName ++ headToUpper fName
+
 mkProtectedEntity :: Type -> LEntityDef -> Q Dec
 mkProtectedEntity labelType ent =
     let pFields = map mkProtectedField (Map.elems $ lEntityFields ent) in
@@ -103,7 +109,7 @@ mkProtectedEntity labelType ent =
         eName = lEntityHaskell ent
         pName = mkName $ "Protected" ++ eName
         mkProtectedField field = 
-            let fName = mkName $ 'p':(eName ++ (headToUpper (lFieldHaskell field))) in
+            let fName = protectedFieldName eName (lFieldHaskell field) in
             let strict = Bang NoSourceUnpackedness $ if lFieldStrict field then SourceStrict else NoSourceStrictness in
             let rawType = fieldTypeToType $ lFieldType field in
             let typ = 
@@ -207,18 +213,36 @@ mkLEntityInstance labelType ent = --, createLabels)) =
         --             AppE acc (AppE (VarE name) (VarE e))
         --       ) (VarE fName) anns
 
+entityConstructorExpression :: LEntityDef -> Exp
+entityConstructorExpression ent = 
+    let fields = map (\field -> 
+            let fName = lFieldHaskell field in
+            let s = fieldName eName fName in
+            let f = VarE $ fieldVarName eName fName in
+            (s, f)
+          ) $ Map.elems $ lEntityFields ent
+    in
+    RecConE (mkName $ lEntityHaskell ent) fields
+
+    where
+        eName = lEntityHaskell ent
+
 protectedEntityPattern :: LEntityDef -> Pat
 protectedEntityPattern ent = 
     ConP 'PEntity [ VarP (mkName "_key"), protectedPattern ent]
 
 protectedPattern :: LEntityDef -> Pat
 protectedPattern ent =
-    let fieldPs = map (\field -> case labeledVarNames ent field of
-            Left lName -> VarP lName
-            Right (lName, vName) -> ConP 'Labeled [VarP lName, VarP vName]
+    let fieldPs = map (\field -> 
+            let fName = protectedFieldName (lEntityHaskell ent) (lFieldHaskell field) in
+            let p = case labeledVarNames ent field of
+                  Left lName -> VarP lName
+                  Right (lName, vName) -> ConP 'Labeled [VarP lName, VarP vName]
+            in
+            (fName, p)
           ) $ Map.elems $ lEntityFields ent
     in
-    ConP pName fieldPs
+    RecP pName fieldPs
 
     where
         eName = lEntityHaskell ent
@@ -572,6 +596,7 @@ mkProtectedEntityInstance labelType ent = do
     let inst = InstanceD Nothing [] (AppT (AppT (ConT ''ProtectedEntity) labelType) (ConT (mkName eName))) [
             toProtected
           , canAllocProtectedF
+          , fromProtectedTCBF
           ]
     let typInst = TySynInstD ''Protected $ TySynEqn [ConT (mkName eName)] (ConT $ mkName pName)
     return [inst, typInst]
@@ -586,8 +611,11 @@ mkProtectedEntityInstance labelType ent = do
         canFlowToE e1 e2 = AppE (AppE (VarE 'canFlowTo) e1) e2
         andE e1 e2 = AppE (AppE (VarE (mkName "&&")) e1) e2
 
+        fromProtectedTCBF = 
+            let body = entityConstructorExpression ent in
+            FunD 'fromProtectedTCB [Clause [protectedPattern ent] (NormalB body) []]
+
         canAllocProtectedF = 
-            let pattern = protectedEntityPattern ent in
             let cV = mkName "_cc" in
             let eV = mkName "_e" in
             let fJust _ x Nothing = Just x 
@@ -614,7 +642,7 @@ mkProtectedEntityInstance labelType ent = do
                   case me of
                     Nothing -> ConE 'True
                     Just cE -> 
-                        let tE = List.foldl' (\acc field -> AppE acc (VarE (fieldVarName eName (lFieldHaskell field)))) (ConE (mkName eName)) $ lEntityFields ent in
+                        let tE = entityConstructorExpression ent in
                         LetE [ValD (VarP eV) (NormalB $ AppE (AppE (ConE 'Entity) (VarE (mkName "_key"))) tE) []] cE
             in
             let body = DoE [
@@ -622,7 +650,7 @@ mkProtectedEntityInstance labelType ent = do
                   , NoBindS (AppE (VarE 'return) checkE)
                   ]
             in
-            FunD 'canAllocProtected [Clause [pattern] (NormalB body) []]
+            FunD 'canAllocProtected [Clause [protectedEntityPattern ent] (NormalB body) []]
 
         -- Skip labels that match table label.
         mkLabelStmts anns acc | anns == lEntityLabelAnnotations ent = 
