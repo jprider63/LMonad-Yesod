@@ -19,7 +19,7 @@ class Label l => ProtectedEntity l e | e -> l where
     -- TCB since we don't do any checks when unlabelling.
     fromProtectedTCB :: Protected e -> e
 
-    canAllocProtected :: PEntity l e -> LMonadT l m Bool
+    canAllocProtected :: LMonad m => PEntity l e -> LMonadT l m Bool
 
 toProtectedWithKeyTCB :: (ProtectedEntity l e) => Entity e -> PEntity l e
 toProtectedWithKeyTCB r = 
