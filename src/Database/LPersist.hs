@@ -265,14 +265,11 @@ pInsertMany :: forall (t :: * -> *) (m :: * -> *) l e.
     t (Protected e) -> ReaderT SqlBackend (LMonadT l m) (t (Key e))
 pInsertMany vals = mapM pInsert vals
 
------- Done ------
-
 insertKey :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistStoreWrite backend, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
 insertKey key val = do
     let tLabel = tableLabel (Proxy :: Proxy v)
-    c <- lift getClearance
-    l <- lift getCurrentLabel
-    lift $ mapM_ (\j -> guardCanFlowTo l j >> guardCanFlowTo j c) $ tLabel:(getFieldLabels $ Entity key val)
+
+    lift $ guardAllocMany $ tLabel:(getFieldLabels $ Entity key val)
     Persist.insertKey key val
 
 -- repsert :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
@@ -282,16 +279,23 @@ insertKey key val = do
 --     whenJust res $ lift . raiseLabelWrite . (Entity key)
 --     Persist.repsert key val
 
-replace :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistStoreWrite backend, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
+------ Done ------
+
+-- JP: This isn't actually useful in most situations?
+replace :: forall v backend l m . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistStoreWrite backend, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
 replace key val = do
+    -- The filter only depends on the key, whose label is the table label. 
+    let lphi = tableLabel (Proxy :: Proxy v)
+
     let e = Entity key val
-    l <- lift getCurrentLabel
-    c <- lift getClearance
-    lift $ mapM_ (\j -> guardCanFlowTo l j >> guardCanFlowTo j c) $ getFieldLabels e
-    oldM <- Persist.get key
-    whenJust oldM $ \old -> do
-        lift $ mapM_ (\x -> guardCanFlowTo l x >> guardCanFlowTo x c) $ getFieldLabels $ Entity key old
-        Persist.replace key val
+    lift $ guardAllocMany $ getFieldLabels e
+
+    Persist.replace key val
+
+    -- oldM <- Persist.get key
+    -- whenJust oldM $ \old -> do
+    --     lift $ mapM_ (\x -> guardCanFlowTo l x >> guardCanFlowTo x c) $ getFieldLabels $ Entity key old
+    --     Persist.replace key val
 
 delete :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistStoreWrite backend, PersistEntity v) => (Key v) -> ReaderT backend (LMonadT l m) ()
 delete key = do
@@ -554,6 +558,15 @@ guardCanFlowTo :: (Label l, LMonad m) => l -> l -> LMonadT l m ()
 guardCanFlowTo a b = LMonadT $
     unless (a `canFlowTo` b) $
         lift lFail
+
+-- JP: Is this necessary? Will GHC optimize to this?
+guardAllocMany :: (Label l, LMonad m) => [l] -> LMonadT l m ()
+guardAllocMany ls = LMonadT $ do
+    (LState label clearance) <- ST.get
+    mapM_ (\l -> 
+        unless (canFlowTo label l && canFlowTo l clearance) $
+            lift lFail
+      ) ls
 
 guardAlloc :: (Label l, LMonad m) => l -> LMonadT l m ()
 guardAlloc l = LMonadT $ do
