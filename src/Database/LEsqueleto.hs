@@ -7,7 +7,10 @@ import Data.Attoparsec.Text (parseOnly)
 import qualified Data.Char as Char
 import qualified Data.List as List
 import Data.Maybe (fromJust)
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Map.Merge
+import qualified Data.Set as Set
 import qualified Database.Esqueleto as Esq
 import Database.Esqueleto as Export (Value(..), SqlBackend)
 -- import Data.Maybe (isJust)
@@ -149,6 +152,11 @@ generateSql lEntityDefs s =
     in
     let protected = (commandSelect normalized) == PSelect in
     let terms = reqTermsCommand isTableOptional normalized in 
+
+    -- Check that there are no unconstrained, required terms. Then retrieve the constrained terms. 
+    let _constrainedMap = getConstrainedTerms $ commandWhere normalized in
+    let _filterFields = getFilterTerms $ commandWhere normalized in
+
     -- TODO: Add some check that all the table and field names used match up with existing things?? XXX
     {-
     ...
@@ -475,7 +483,7 @@ generateSql lEntityDefs s =
         varNameTableFieldP table field = mkName $ '_':'p':'_':((toLowerString table) ++ ('_':(toLowerString field)))
         constrNameTableField table field = mkName $ (headToUpper table) ++ (headToUpper field)
 
-        reqTermsCommand isTableOptional (Command _ terms tables whereM orderByM _limitM _offsetM) = 
+        reqTermsCommand isTableOptional (Command _ terms tables _whereM orderByM _limitM _offsetM) = 
             -- Get all requested terms
             --    transform to ReqTerm
             -- get the dependencies of all the other terms
@@ -485,8 +493,11 @@ generateSql lEntityDefs s =
                   TermsAll -> error "reqTermsCommand: normalization failed"
             in
             let reqTerms = List.map (reqTermsTerm isTableOptional True) terms' in
-            let reqTerms' = reqTermsTables isTableOptional reqTerms tables in
-            let reqTerms'' = maybe reqTerms' (reqTermsWhere isTableOptional reqTerms') whereM in
+            let reqTerms'' = reqTermsTables isTableOptional reqTerms tables in
+            
+            -- Check that there are no unconstrained, required terms.
+            -- let reqTerms'' = maybe reqTerms' (reqTermsWhere isTableOptional reqTerms') whereM in
+            
             maybe reqTerms'' (reqTermsOrderBy isTableOptional reqTerms'') orderByM
             --let reqTerms''' = maybe reqTerms'' (reqTermsOrderBy reqTerms'') orderByM in
             --let reqTerms'''' = maybe reqTerms''' (reqTermsLimit reqTerms''') limitM in
@@ -499,7 +510,49 @@ generateSql lEntityDefs s =
                     reqTermsTermMaybe isTableOptional acc t
             ) curTerms ords
 
-        reqTermsWhere isTableOptional curTerms (Where bexpr) = reqTermsBExpr isTableOptional curTerms bexpr
+        -- reqTermsWhere isTableOptional curTerms (Where bexpr) = reqTermsBExpr isTableOptional curTerms bexpr
+
+        getConstrainedTerms Nothing = Map.empty
+        getConstrainedTerms (Just (Where bexpr)) = 
+            -- Get required terms.
+            let isTableOptional = const False in
+            let req = reqTermsBExpr isTableOptional [] bexpr in
+
+            -- Get constrained terms.
+            let constrained = constrainedTerms bexpr in
+
+            -- Error if required terms is not a subset of constrained terms.
+            -- JP: Maybe should use a Set earlier.
+            if not (Set.fromList (map reqTermToTerm req) `Set.isSubsetOf` Set.fromList (Map.keys constrained)) then
+                error "There are unconstrained required terms from the filter of this query. This will cause the current label to raise to top, which will error in most situations."
+            else
+
+                -- Return constrained map.
+                constrained
+
+        constrainedTerms :: BExpr -> Map Term B
+        constrainedTerms (BExprBinOp (BTerm l) BinEq r) | isValue r = Map.singleton l r
+        constrainedTerms (BExprBinOp l BinEq (BTerm r)) | isValue l = Map.singleton r l
+        constrainedTerms (BExprBinOp _l _op _r) = Map.empty
+        constrainedTerms (BExprAnd l r) = mapAnd (constrainedTerms l) (constrainedTerms r)
+        constrainedTerms (BExprOr l r) = mapOr (constrainedTerms l) (constrainedTerms r)
+        constrainedTerms (BExprNull _t) = Map.empty
+        constrainedTerms (BExprNotNull _t) = Map.empty
+        constrainedTerms (BExprNot _t) = Map.empty
+
+        -- mapAnd = Map.merge 
+        --     Map.preserveMissing 
+        --     Map.preserveMissing 
+        --     (Map.zipWithMatched (\k x y -> if x == y then x else error ("Field `" ++ show k ++ "` is constrained to different values.")))
+
+        -- mapOr = Map.merge
+        --     Map.dropMissing
+        --     Map.dropMissing
+        --     (Map.zipWithMaybeMatched (\_ x y -> if x == y then Just x else Nothing))
+
+        isValue (BTerm _) = False
+        isValue (BAnti _) = True
+        isValue (BConst _) = True
 
         reqTermsTables :: (String -> Bool) -> [ReqTerm] -> Tables -> [ReqTerm]
         reqTermsTables isTableOptional curTerms (Tables ts _ _ bexpr) = 
@@ -573,6 +626,20 @@ generateSql lEntityDefs s =
                 ReqEntity tableS optional hasDeps
         reqTermsTerm _ _ (TermF _) = error "reqTermsTerm: normalization failed"
 
+        getFilterTerms Nothing = Set.empty
+        getFilterTerms (Just (Where b)) = getFilterTermsBExpr b
+
+        getFilterTermsBExpr (BExprAnd a b) = getFilterTermsBExpr a `Set.union` getFilterTermsBExpr b
+        getFilterTermsBExpr (BExprOr a b) = getFilterTermsBExpr a `Set.union` getFilterTermsBExpr b
+        getFilterTermsBExpr (BExprBinOp a _ b) = getFilterTermsB a `Set.union` getFilterTermsB b
+        getFilterTermsBExpr (BExprNull t) = Set.singleton t
+        getFilterTermsBExpr (BExprNotNull t) = Set.singleton t
+        getFilterTermsBExpr (BExprNot a) = getFilterTermsBExpr a
+
+        getFilterTermsB (BTerm t) = Set.singleton t
+        getFilterTermsB (BAnti _) = Set.empty
+        getFilterTermsB (BConst _) = Set.empty
+
         -- selectE = VarE $ mkName "select"
         -- fromE = VarE $ mkName "from"
         -- where_E = VarE $ mkName "where_"
@@ -590,6 +657,10 @@ generateSql lEntityDefs s =
         -- rightOuterJoin = VarE $ mkName "RightOuterJoin"
         -- fullOuterJoin = VarE $ mkName "FullOuterJoin"
         -- crossJoin = VarE $ mkName "CrossJoin"
+
+reqTermToTerm :: ReqTerm -> Term
+reqTermToTerm (ReqField table field _ _) = TermTF table (Field field)
+reqTermToTerm (ReqEntity _ _ _) = error "unreachable: reqTermToTerm"
 
 data ReqTerm = 
     ReqField {

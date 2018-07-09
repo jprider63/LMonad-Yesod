@@ -285,12 +285,13 @@ insertKey key val = do
 replace :: forall v backend l m . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistStoreWrite backend, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
 replace key val = do
     -- The filter only depends on the key, whose label is the table label. 
-    let lphi = tableLabel (Proxy :: Proxy v)
+    -- let lphi = tableLabel (Proxy :: Proxy v)
 
-    let e = Entity key val
-    lift $ guardAllocMany $ getFieldLabels e
+    -- let e = Entity key val
+    -- lift $ guardAllocMany $ getFieldLabels e
 
-    Persist.replace key val
+    -- Persist.replace key val
+    undefined key val
 
     -- oldM <- Persist.get key
     -- whenJust oldM $ \old -> do

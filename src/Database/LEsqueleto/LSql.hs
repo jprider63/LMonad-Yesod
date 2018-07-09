@@ -46,8 +46,9 @@ data Offset = Offset Integer
     deriving (Show)
 
 data Term = TermTF String TermField | TermF TermField
-    deriving (Show)
+    deriving (Show, Eq, Ord)
 data TermField = Field String | FieldAll
+    deriving (Eq, Ord)
 
 data BExpr = BExprAnd BExpr BExpr | BExprOr BExpr BExpr | BExprBinOp B BinOp B | BExprNull Term | BExprNotNull Term | BExprNot BExpr
     deriving (Show)
@@ -56,9 +57,9 @@ data BinOp = BinEq | BinNEq | BinGE | BinG | BinLE | BinL
     deriving (Show)
 
 data B = BTerm Term | BAnti String | BConst C
-    deriving (Show)
+    deriving (Eq, Show)
 data C = CBool Bool | CString String | CInt Integer | CDouble Double
-    deriving (Show)
+    deriving (Eq, Show)
 
 instance Show TermField where
     show (Field s) = s
