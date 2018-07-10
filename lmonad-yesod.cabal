@@ -56,7 +56,8 @@ library
   -- Modules included in this library but not exported.
   other-modules:       
       Database.LPersist.Quasi
-      Database.LEsqueleto.LSql
+    , Database.LEsqueleto.LSql
+    , Data.Map.Merge
     , Internal
   
   hs-source-dirs:

@@ -55,10 +55,10 @@ mkSerializedLEntityDefs ents' =
         mkSerializedLEntityDef ent = 
             let str = LitE $ StringL $ lEntityHaskell ent in
             let fields = mkSerializedLFieldsDef $ Map.elems $ lEntityFields ent in
-            -- if (lEntityHaskell ent) == "User" then
-            --     error $ show ent
-            -- else
-            AppE (AppE (ConE 'LEntityDef) str) fields
+            let anns = mkSerializedLabelAnnotations $ lEntityLabelAnnotations ent in
+            let uniqueFieldLabels = ListE $ map mkSerializedLabelAnnotations $ lEntityUniqueFieldLabelsAnnotations ent in
+            let dependencyFields = AppE (VarE 'Set.fromList) $ ListE $ map (LitE . StringL) $ Set.toList $ lEntityDependencyFields ent in
+            AppE (AppE (AppE (AppE (AppE (ConE 'LEntityDef) str) fields) anns) uniqueFieldLabels) dependencyFields
 
         mkSerializedText t = SigE (LitE $ StringL $ Text.unpack t) (ConT ''Text)
         mkSerializedFieldType typ = case typ of
@@ -93,20 +93,21 @@ mkSerializedLEntityDefs ents' =
                   let name = LitE $ StringL $ lFieldHaskell field in
                   let typ = mkSerializedFieldType $ lFieldType field in
                   let strict = ConE $ if lFieldStrict field then 'True else 'False in
-                  let anns = 
-                        let ( r', w') = lFieldLabelAnnotations field in
-                        let r = mkSerializedLabelAnnotation r' in
-                        let w = mkSerializedLabelAnnotation w' in
-                        -- let r = ListE $ map mkSerializedLabelAnnotation r' in
-                        -- let w = ListE $ map mkSerializedLabelAnnotation w' in
-                        -- let c = ListE $ map mkSerializedLabelAnnotation c' in
-                        TupE [ r, w] -- , c]
+                  let anns = mkSerializedLabelAnnotations $ lFieldLabelAnnotations field in
+                  let deps = 
+                        ListE $ map (LitE . StringL) $ lFieldLabelDependencies field
                   in
-                  let def = AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns in
+                  let def = AppE (AppE (AppE (AppE (AppE (ConE 'LFieldDef) name) typ) strict) anns) deps in
                   TupE [name, def]
             in
             -- ListE $ map helper fields'
             AppE (VarE 'Map.fromList) $ ListE $ map helper fields'
+        
+        mkSerializedLabelAnnotations (r', w') =
+            let r = mkSerializedLabelAnnotation r' in
+            let w = mkSerializedLabelAnnotation w' in
+            TupE [ r, w]
+            
 
 lsqlHelper :: [LEntityDef] -> QuasiQuoter
 lsqlHelper ents = QuasiQuoter {
