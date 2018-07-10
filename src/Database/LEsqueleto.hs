@@ -211,8 +211,9 @@ generateSql lEntityDefs s =
                       ) terms 
                 in
                 let body = 
+                      let getExpr table "id" = VarE $ varNameTableField table "id"
                       -- JP: This could be more efficient...
-                      let getExpr table field = 
+                          getExpr table field = 
                             let res = List.foldl' ( \acc rterm -> maybe ( case rterm of 
                                     ReqField table' field' _ _
                                       | table == table' && field == field' ->
@@ -252,20 +253,24 @@ generateSql lEntityDefs s =
 
                                     let labeler = VarE $ mkName $ "label" ++ (headToUpper table) ++ (headToUpper field) ++ "'" in
                                     -- JP: Does this ordering always match up?
-                                    let label = List.foldl' (\acc field' -> 
+                                    let labelE = List.foldl' (\acc field' -> 
                                             AppE acc $ getExpr table field'
                                           ) labeler deps
                                     in
                                     let stmt = if protected then
+                                            -- TODO: If field isn't protected, don't need to wrap it.
                                             let vName = varNameTableFieldP table field in
-                                            let lName = mkName "_protected_label" in
-                                            let lDec = ValD (VarP lName) (NormalB label) [] in
-                                            BindS (VarP vName) $ LetE [lDec] $ AppE (AppE (VarE 'toLabeled) (VarE lName)) $ DoE [
-                                                    NoBindS $ AppE (VarE 'taintLabel) (VarE lName),
-                                                    NoBindS $ AppE (VarE 'return) (VarE $ varNameTableField table field)
-                                                ]
+                                            let labeledE = AppE (AppE (VarE 'Labeled) labelE) (VarE $ varNameTableField table field) in
+                                            LetS [ValD (VarP vName) (NormalB labeledE) []]
+
+                                            -- let lName = mkName "_protected_label" in
+                                            -- let lDec = ValD (VarP lName) (NormalB label) [] in
+                                            -- BindS (VarP vName) $ LetE [lDec] $ AppE (AppE (VarE 'toLabeled) (VarE lName)) $ DoE [
+                                            --         NoBindS $ AppE (VarE 'taintLabel) (VarE lName),
+                                            --         NoBindS $ AppE (VarE 'return) (VarE $ varNameTableField table field)
+                                            --     ]
                                           else
-                                            NoBindS $ AppE (VarE 'taintLabel) label
+                                            NoBindS $ AppE (VarE 'taintLabel) labelE
                                     in
                                     stmt:acc
                                 ReqEntity _table _ False ->
