@@ -211,7 +211,8 @@ generateSql lEntityDefs s =
                       ) terms 
                 in
                 let body = 
-                      let _getExpr table field = 
+                      -- JP: This could be more efficient...
+                      let getExpr table field = 
                             let res = List.foldl' ( \acc rterm -> maybe ( case rterm of 
                                     ReqField table' field' _ _
                                       | table == table' && field == field' ->
@@ -245,15 +246,16 @@ generateSql lEntityDefs s =
                                 -- TODO: This case is wrong? It doesn't matter if there aren't any dependencies. XXX
                                 ReqField _ _ _ [] -> 
                                     acc
-                                ReqField table field _returning _deps -> 
-                                    let _labeler = error "TODO XXX" in
-                                    let label = error "TODO XXX" in
+                                ReqField table field _returning deps -> 
+                                    -- let _labeler = error "TODO XXX" in
+                                    -- let label = error "TODO XXX" in
 
-                                    -- let labeler = VarE $ mkName $ "readLabel" ++ (headToUpper table) ++ (headToUpper field) ++ "'" in
-                                    -- let label = List.foldl' (\acc (table',field') -> 
-                                    --         AppE acc $ getExpr table' field'
-                                    --       ) labeler deps
-                                    -- in
+                                    let labeler = VarE $ mkName $ "label" ++ (headToUpper table) ++ (headToUpper field) ++ "'" in
+                                    -- JP: Does this ordering always match up?
+                                    let label = List.foldl' (\acc field' -> 
+                                            AppE acc $ getExpr table field'
+                                          ) labeler deps
+                                    in
                                     let stmt = if protected then
                                             let vName = varNameTableFieldP table field in
                                             let lName = mkName "_protected_label" in
@@ -280,7 +282,7 @@ generateSql lEntityDefs s =
                                               else
                                                 nonoptionCase $ VarE 'toProtectedTCB
                                           else
-                                            let taintEntityLabel = AppE (VarE 'taintLabel) (VarE 'getEntityLabel) in
+                                            let taintEntityLabel = UInfixE (VarE 'taintLabel) (VarE $ mkName ".") (VarE 'getEntityLabel) in
                                             NoBindS $ if optional then
                                                 optionCase (ConE '()) taintEntityLabel
                                               else
@@ -595,6 +597,7 @@ generateSql lEntityDefs s =
             else
                 curTerms
 
+        -- Lookup the table and field. Get its dependencies.
         reqTermsTerm isTableOptional returning (TermTF tableS field) = case field of
             Field fieldS ->
                 let ent = getLTable tableS in -- Move this to TermTF? Or someplace earlier?

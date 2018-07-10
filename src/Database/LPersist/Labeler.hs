@@ -413,7 +413,11 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
 
     let labelsD' = map mkLabelField' labels'' in
 
-    concat labelsD'
+    -- TODO: We should eventually drop these field specific names and update lesqueleto. XXX
+    -- table and key aliases too?
+    let labelsD'' = map mkLabelFieldAlias' $ Map.elems $ lEntityFields ent in
+
+    concat $ labelsD' ++ labelsD''
 
 --     let (readLabels, writeLabels) = lEntityUniqueFieldLabelsAnnotations ent in
 --     let readD = map (mkLabelField' lFieldReadLabelName' toConfLabel) readLabels in
@@ -495,6 +499,18 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
             let sig = SigD name $ mkType args in
             let def = FunD name [Clause (mkPattern args) (NormalB $ mkBody anns) []] in
             [sig, def]
+   
+        mkLabelFieldAlias' field = 
+            let anns = lFieldLabelAnnotations field in
+            let args = lFieldLabelArguments anns in
+            let fName = lFieldHaskell field in
+            let name = mkName $ "label" ++ headToUpper eName ++ headToUpper fName ++ "'" in
+            let sig = SigD name $ mkType args in
+            let aName = lFieldLabelName' eName anns in
+            let def = FunD name [Clause [] (NormalB $ VarE aName) []] in
+            [sig, def]
+
+
 
 {-
 -- | Similar to mkLabelEntity, except this function creates code that returns the labels given what the label depends on instead of the entire entity. 

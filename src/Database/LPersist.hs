@@ -40,7 +40,7 @@ module Database.LPersist (
     , pInsert
     , pInsert_
     , pInsertMany
---    , repsert
+    , repsert
     , replace
     , delete
     , update
@@ -51,7 +51,7 @@ module Database.LPersist (
     , getBy
     , pGetBy
     , deleteBy
---    , insertUnique
+    , insertUnique
     , updateWhere
     , deleteWhere
     , selectFirst
@@ -262,14 +262,15 @@ insertKey key val = do
     lift $ guardAllocMany $ tLabel:(getFieldLabels $ Entity key val)
     Persist.insertKey key val
 
--- repsert :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
+------ Done ------
+
+repsert :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
+repsert = undefined
 -- repsert key val = do
 --     lift $ raiseLabelCreate val
 --     res <- Persist.get key
 --     whenJust res $ lift . raiseLabelWrite . (Entity key)
 --     Persist.repsert key val
-
------- Done ------
 
 -- JP: This isn't actually useful in most situations?
 replace :: forall v backend l m . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistStoreWrite backend, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
@@ -375,7 +376,8 @@ deleteBy uniq = do
 --         lift $ raiseLabelWrite e
 --         Persist.deleteBy uniq
 -- 
--- insertUnique :: (ProtectedEntity l v, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => v -> ReaderT backend (LMonadT l m) (Maybe (Key v))
+insertUnique :: (ProtectedEntity l v, PersistUnique backend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => v -> ReaderT backend (LMonadT l m) (Maybe (Key v))
+insertUnique _val = undefined
 -- insertUnique val = do
 --     lift $ raiseLabelCreate val
 --     Persist.insertUnique val
