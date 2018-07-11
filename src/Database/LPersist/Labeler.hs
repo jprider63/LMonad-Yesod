@@ -415,7 +415,7 @@ mkLabelEntity' labelType ent = -- , createLabels)) =
 
     -- TODO: We should eventually drop these field specific names and update lesqueleto. XXX
     -- table and key aliases too?
-    let labelsD'' = map mkLabelFieldAlias' $ Map.elems $ lEntityFields ent in
+    let labelsD'' = map mkLabelFieldAlias' $ (getLEntityFieldOrIdDef ent "id") : (Map.elems $ lEntityFields ent) in
 
     concat $ labelsD' ++ labelsD''
 

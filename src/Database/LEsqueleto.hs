@@ -244,9 +244,6 @@ generateSql lEntityDefs s =
                       let taints = List.foldr (\rterm acc -> case rterm of
                                 ReqField _ _ False _ -> 
                                     acc
-                                -- TODO: This case is wrong? It doesn't matter if there aren't any dependencies. XXX
-                                ReqField _ _ _ [] -> 
-                                    acc
                                 ReqField table field _returning deps -> 
                                     -- let _labeler = error "TODO XXX" in
                                     -- let label = error "TODO XXX" in
@@ -260,7 +257,7 @@ generateSql lEntityDefs s =
                                     let stmt = if protected then
                                             -- TODO: If field isn't protected, don't need to wrap it.
                                             let vName = varNameTableFieldP table field in
-                                            let labeledE = AppE (AppE (VarE 'Labeled) labelE) (VarE $ varNameTableField table field) in
+                                            let labeledE = AppE (AppE (ConE 'Labeled) labelE) (VarE $ varNameTableField table field) in
                                             LetS [ValD (VarP vName) (NormalB labeledE) []]
 
                                             -- let lName = mkName "_protected_label" in
@@ -506,10 +503,13 @@ generateSql lEntityDefs s =
             -- Check that there are no unconstrained, required terms.
             -- let reqTerms'' = maybe reqTerms' (reqTermsWhere isTableOptional reqTerms') whereM in
             
-            maybe reqTerms'' (reqTermsOrderBy isTableOptional reqTerms'') orderByM
+            let reqTerms''' = maybe reqTerms'' (reqTermsOrderBy isTableOptional reqTerms'') orderByM in
             --let reqTerms''' = maybe reqTerms'' (reqTermsOrderBy reqTerms'') orderByM in
             --let reqTerms'''' = maybe reqTerms''' (reqTermsLimit reqTerms''') limitM in
             --maybe reqTerms'''' (reqTermsOffset reqTerms'''') offsetM
+            
+            -- Insert dependencies.
+            List.foldl' (reqTermDeps isTableOptional) reqTerms''' reqTerms'''
 
         reqTermsOrderBy isTableOptional curTerms (OrderBy ords) = List.foldl' (\acc ord -> case ord of
                 OrderAsc t ->
@@ -580,6 +580,12 @@ generateSql lEntityDefs s =
         reqTermsB _ curTerms _ = curTerms
 
         -- Union in new term. Term should never be an entity.
+        reqTermDeps :: (String -> Bool) -> [ReqTerm] -> ReqTerm -> [ReqTerm]
+        reqTermDeps _ acc (ReqEntity _ _ _) = acc
+        reqTermDeps isTableOptional acc (ReqField table _ _ deps) = List.foldl' (\acc dep ->
+            reqTermsTermMaybe isTableOptional acc $ TermTF table (Field dep)-- $ ReqField table dep False [] -- Dep must be [] due to invariant.
+          ) acc deps
+
         reqTermsTermMaybe :: (String -> Bool) -> [ReqTerm] -> Term -> [ReqTerm]
         reqTermsTermMaybe isTableOptional curTerms term = 
             let ( tableS, fieldS) = extractTableField term in
