@@ -10,6 +10,7 @@ import Data.Maybe (fromJust)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Map.Merge
+import Data.Proxy
 import qualified Data.Set as Set
 import qualified Database.Esqueleto as Esq
 import Database.Esqueleto as Export (Value(..), SqlBackend)
@@ -312,7 +313,7 @@ generateSql lEntityDefs s =
                                     (VarE name):acc
                             ) [] terms
                       in
-                      DoE $ taints ++ [returns]
+                      DoE $ taintTables (commandTables normalized) ++ taints ++ [returns]
                 in
                 LamE [pat] body
           in
@@ -322,6 +323,13 @@ generateSql lEntityDefs s =
     return $ DoE [ query, taint]
 
     where
+        taintTable table = 
+            let proxyE = SigE (ConE 'Proxy) (AppT (ConT ''Proxy) (ConT (mkName table))) in
+            NoBindS $ AppE (VarE 'taintLabel) (AppE (VarE 'tableLabel) proxyE)
+        taintTables (Table table) = [taintTable table]
+        taintTables (Tables ts _ table _) = (taintTable table):(taintTables ts)
+            
+
         mkEntityPattern table = 
             AsP (varNameTableE table) $ ConP 'Entity [ VarP $ varNameTableField table "id", VarP $ varNameTable table]
 
