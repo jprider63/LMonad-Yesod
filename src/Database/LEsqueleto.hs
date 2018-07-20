@@ -337,7 +337,7 @@ generateSql lEntityDefs s =
             Nothing ->
                 error "taintTables: No table given" 
             Just (t, ts) ->
-                NoBindS $ AppE (VarE 'taintLabel) $ AppE (AppE (VarE 'joinLabels) t) $ ListE ts
+                NoBindS $ AppE (VarE 'lift) $ AppE (VarE 'taintLabel) $ AppE (AppE (VarE 'joinLabels) t) $ ListE ts
         taintConstantLabels = taintTables . commandTables
             
 
