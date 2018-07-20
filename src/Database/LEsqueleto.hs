@@ -333,11 +333,8 @@ generateSql lEntityDefs s =
         tableLabels (Table table) = [tableLabelE table]
         tableLabels (Tables ts _ table _) = (tableLabelE table):(tableLabels ts)
 
-        taintTables ts = case List.uncons $ tableLabels ts of
-            Nothing ->
-                error "taintTables: No table given" 
-            Just (t, ts) ->
-                NoBindS $ AppE (VarE 'lift) $ AppE (VarE 'taintLabel) $ AppE (AppE (VarE 'joinLabels) t) $ ListE ts
+        taintTables ts =
+            NoBindS $ AppE (VarE 'lift) $ AppE (VarE 'taintLabels) $ ListE $ tableLabels ts
         taintConstantLabels = taintTables . commandTables
             
 
