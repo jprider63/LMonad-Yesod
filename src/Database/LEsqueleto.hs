@@ -10,7 +10,6 @@ import Data.Maybe (fromJust)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Map.Merge
-import Data.Proxy
 import qualified Data.Set as Set
 import qualified Database.Esqueleto as Esq
 import Database.Esqueleto as Export (Value(..), SqlBackend)
@@ -50,7 +49,7 @@ mkLSqlWithDefault defaultLabel ents' =
 -- [ LEntityDef "User" [LFieldDef "ident" (FTTypeCon "Text") True Nothing, ...], ...]
 mkSerializedLEntityDefs :: [LEntityDef] -> Exp
 mkSerializedLEntityDefs ents' = 
-    ListE $ List.map mkSerializedLEntityDef ents'
+    AppE (VarE 'Map.fromList) $ ListE $ List.map mkSerializedLEntityDef ents'
 
     where
         mkSerializedLEntityDef ent = 
@@ -59,7 +58,8 @@ mkSerializedLEntityDefs ents' =
             let anns = mkSerializedLabelAnnotations $ lEntityLabelAnnotations ent in
             let uniqueFieldLabels = ListE $ map mkSerializedLabelAnnotations $ lEntityUniqueFieldLabelsAnnotations ent in
             let dependencyFields = AppE (VarE 'Set.fromList) $ ListE $ map (LitE . StringL) $ Set.toList $ lEntityDependencyFields ent in
-            AppE (AppE (AppE (AppE (AppE (ConE 'LEntityDef) str) fields) anns) uniqueFieldLabels) dependencyFields
+            let e = AppE (AppE (AppE (AppE (AppE (ConE 'LEntityDef) str) fields) anns) uniqueFieldLabels) dependencyFields in
+            TupE [LitE $ StringL $ toLowerString (lEntityHaskell ent), e]
 
         mkSerializedText t = SigE (LitE $ StringL $ Text.unpack t) (ConT ''Text)
         mkSerializedFieldType typ = case typ of
@@ -110,12 +110,12 @@ mkSerializedLEntityDefs ents' =
             TupE [ r, w]
             
 
-lsqlHelper :: [LEntityDef] -> QuasiQuoter
+lsqlHelper :: Map String LEntityDef -> QuasiQuoter
 lsqlHelper ents = QuasiQuoter {
         quoteExp = (generateSql ents) . Text.pack
     }
 
-generateSql :: [LEntityDef] -> Text -> Q Exp
+generateSql :: Map String LEntityDef -> Text -> Q Exp
 generateSql lEntityDefs s = 
     -- Parse the DSL. 
     let ast = case parseOnly parseCommand s of
@@ -313,21 +313,30 @@ generateSql lEntityDefs s =
                                     (VarE name):acc
                             ) [] terms
                       in
-                      DoE $ taintTables (commandTables normalized) ++ taints ++ [returns]
+                      DoE $ taintTables (commandTables normalized) : taints ++ [returns]
                 in
                 LamE [pat] body
           in
-          NoBindS $ AppE (VarE 'lift)$ AppE (AppE (VarE 'mapM) fun) (VarE res)
+          NoBindS $ AppE (VarE 'lift) $ AppE (AppE (VarE 'mapM) fun) (VarE res)
 
     -- error $ pprint $ DoE [ query, taint]
     return $ DoE [ query, taint]
+    -- return $ DoE [ queryS, iterateS, taintS]
 
     where
-        taintTable table = 
-            let proxyE = SigE (ConE 'Proxy) (AppT (ConT ''Proxy) (ConT (mkName table))) in
-            NoBindS $ AppE (VarE 'taintLabel) (AppE (VarE 'tableLabel) proxyE)
-        taintTables (Table table) = [taintTable table]
-        taintTables (Tables ts _ table _) = (taintTable table):(taintTables ts)
+        tableLabelE tableS = 
+            let ent = getLTable tableS in
+            let n = lFieldLabelName' (lEntityHaskell ent) (lEntityLabelAnnotations ent) in
+            VarE n
+
+        tableLabels (Table table) = [tableLabelE table]
+        tableLabels (Tables ts _ table _) = (tableLabelE table):(tableLabels ts)
+
+        taintTables ts = case List.uncons $ tableLabels ts of
+            Nothing ->
+                error "taintTables: No table given" 
+            Just (t, ts) ->
+                NoBindS $ AppE (VarE 'taintLabel) $ AppE (AppE (VarE 'joinLabels) t) $ ListE ts
             
 
         mkEntityPattern table = 
@@ -448,15 +457,20 @@ generateSql lEntityDefs s =
             let (tableS, fieldS) = extractTableField term in
             mkExprTF (isTableOptional tableS) tableS fieldS
 
-        getLTable tableS = 
-            let findEntity [] = error $ "Could not find table `" ++ tableS ++ "`"
-                findEntity (h:t) = 
-                    if toLowerString (lEntityHaskell h) == toLowerString tableS then
-                        h
-                    else
-                        findEntity t
-            in
-            findEntity lEntityDefs
+        getLTable tableS = case Map.lookup (toLowerString tableS) lEntityDefs of
+            Nothing ->
+                error $ "Could not find table `" ++ tableS ++ "`"
+            Just h ->
+                h
+
+            -- let findEntity [] = error $ "Could not find table `" ++ tableS ++ "`"
+            --     findEntity (h:t) = 
+            --         if toLowerString (lEntityHaskell h) == toLowerString tableS then
+            --             h
+            --         else
+            --             findEntity t
+            -- in
+            -- findEntity lEntityDefs
 
         getLTableField = 
             getLEntityFieldOrIdDef
@@ -488,7 +502,6 @@ generateSql lEntityDefs s =
         extractTableField (TermTF t FieldAll) = error $ "extractTableField: All fields requested for table `" ++ t ++ "`"
         extractTableField (TermF f) = error $ "extractTableField: Invalid terminal field `TermF " ++ (show f) ++ "`"
 
-        toLowerString = List.map Char.toLower
         varNameTable table = mkName $ '_':(toLowerString table)
         varNameTableE table = mkName $ '_':'e':'_':(toLowerString table)
         varNameTableP table = mkName $ '_':'p':'_':(toLowerString table)
@@ -786,7 +799,7 @@ parenInfixE e1 e2 e3 = ParensE $ UInfixE e1 e2 e3
 
 -- Debugging functions.
 
-lsqlHelper' :: [LEntityDef] -> QuasiQuoter
+lsqlHelper' :: Map String LEntityDef -> QuasiQuoter
 lsqlHelper' ents = QuasiQuoter {
         quoteExp = (generateSql' ents) . Text.pack
     }
@@ -795,3 +808,5 @@ lsqlHelper' ents = QuasiQuoter {
             res <- generateSql e s
             error $ pprint res
 
+toLowerString :: String -> String
+toLowerString = List.map Char.toLower
