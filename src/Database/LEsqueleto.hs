@@ -313,14 +313,15 @@ generateSql lEntityDefs s =
                                     (VarE name):acc
                             ) [] terms
                       in
-                      DoE $ taintTables (commandTables normalized) : taints ++ [returns]
+                      DoE $ taints ++ [returns]
                 in
                 LamE [pat] body
           in
           NoBindS $ AppE (VarE 'lift) $ AppE (AppE (VarE 'mapM) fun) (VarE res)
 
     -- error $ pprint $ DoE [ query, taint]
-    return $ DoE [ query, taint]
+    -- return $ DoE [ query, taint]
+    return $ DoE [ query, taintConstantLabels normalized, taint]
     -- return $ DoE [ queryS, iterateS, taintS]
 
     where
@@ -337,6 +338,7 @@ generateSql lEntityDefs s =
                 error "taintTables: No table given" 
             Just (t, ts) ->
                 NoBindS $ AppE (VarE 'taintLabel) $ AppE (AppE (VarE 'joinLabels) t) $ ListE ts
+        taintConstantLabels = taintTables . commandTables
             
 
         mkEntityPattern table = 
