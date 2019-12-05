@@ -181,6 +181,7 @@ pGet key = do
     return $ fmap (toProtectedTCB . Entity key) res
 
 -- Helper function for inserts.
+-- Does NOT raise to table label. Caller is responsible.
 insertHelper :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => v -> ReaderT backend (LMonadT l m) (Key v)
 insertHelper val = do
     let tLabel = tableLabel (Proxy :: Proxy v)
@@ -189,6 +190,7 @@ insertHelper val = do
     k <- Persist.insert val
     let e = Entity k val
     mapM_ guardAllocRollback $ getFieldLabels e
+
     return k
 
 insert :: forall l m v . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ SqlBackend, PersistEntity v) => v -> ReaderT SqlBackend (LMonadT l m) (Key v)
@@ -197,20 +199,16 @@ insert val = do
     k <- insertHelper val
 
     -- Raise to table label since we're reading key.
-    -- JP: Should we rollback?
     lift $ taintLabel $ tableLabel (Proxy :: Proxy v)
 
     return k
 
 -- Helper function for protected inserts.
+-- Does NOT raise the label to the dependency fields' labels. Caller is responsible.
 pInsertHelper :: forall m l e . (MonadIO m, LMonad m, Label l, LEntity l e, ProtectedEntity l e, PersistEntity e, PersistEntityBackend e ~ SqlBackend) => Protected e -> ReaderT SqlBackend (LMonadT l m) (Key e)
 pInsertHelper p = do
-    -- Taint label to dependency label labels.
-    let pr = Proxy :: Proxy e
-    lift $ taintLabels $ getDependencyLabelsLabels pr
-
     -- Guard write.
-    let tLabel = tableLabel pr
+    let tLabel = tableLabel (Proxy :: Proxy e)
     lift $ guardAlloc tLabel
 
     k <- Persist.insert $ fromProtectedTCB p
@@ -229,7 +227,7 @@ pInsert val = do
     k <- pInsertHelper val
 
     -- Raise to table label since we're reading key.
-    -- JP: Should we rollback?
+    -- Don't need to raise dependency fields' labels since they all flow into table label.
     lift $ taintLabel $ tableLabel (Proxy :: Proxy e)
 
     return k
@@ -242,7 +240,9 @@ insert_ val = do
 pInsert_ :: forall m l e . (MonadIO m, LMonad m, Label l, LEntity l e, ProtectedEntity l e, PersistEntity e, PersistEntityBackend e ~ SqlBackend) => Protected e -> ReaderT SqlBackend (LMonadT l m) ()
 pInsert_ val = do
     _ <- pInsertHelper val
-    return ()
+
+    -- Taint label to dependency fields' labels.
+    lift $ taintLabels $ getDependencyLabelsLabels (Proxy :: Proxy e)
 
 insertMany :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v, backend ~ SqlBackend) => [v] -> ReaderT backend (LMonadT l m) [Key v]
 insertMany vals = mapM insert vals
@@ -264,8 +264,31 @@ insertKey key val = do
 
 ------ Done ------
 
+-- Write to table label.
+-- Read on table label (and key). 
 repsert :: (LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
-repsert = undefined
+repsert key val = do
+    -- Guard write to table label.
+    lift $ guardAlloc $ tableLabel (Proxy :: Proxy v)
+
+    let e = Entity key val
+    resM <- Persist.get key
+    case resM of
+        Nothing ->
+            mapM_ guardAllocRollback $ getFieldLabels e
+        Just val' -> 
+            let fs = getFieldLabels e
+            let e' = Entity key val'
+            let fs' = getFieldLabels e'
+            
+            ... TODO
+
+    ... TODO
+    Persist.repsert key val
+    
+    -- Raise to table label.
+    lift $ taintLabel $ tableLabel (Proxy :: Proxy v)
+
 -- repsert key val = do
 --     lift $ raiseLabelCreate val
 --     res <- Persist.get key
@@ -275,8 +298,15 @@ repsert = undefined
 -- JP: This isn't actually useful in most situations?
 replace :: forall v backend l m . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistStoreWrite backend, PersistEntity v) => (Key v) -> v -> ReaderT backend (LMonadT l m) ()
 replace key val = do
+    ... TODO: Start HERE
+
+
+
     -- The filter only depends on the key, whose label is the table label. 
-    -- let lphi = tableLabel (Proxy :: Proxy v)
+    lift $ taintLabel $ tableLabel (Proxy :: Proxy v)
+
+    -- Guard writes to fields.
+
 
     -- let e = Entity key val
     -- lift $ guardAllocMany $ getFieldLabels e
@@ -291,15 +321,24 @@ replace key val = do
 
 delete :: forall l m v backend . (LMonad m, Label l, LEntity l v, MonadIO m, PersistEntityBackend v ~ BaseBackend backend, PersistStoreWrite backend, PersistEntity v) => (Key v) -> ReaderT backend (LMonadT l m) ()
 delete key = do
+    -- Current label and labelPred (tableLabel) influence table length.
+    lc <- lift getCurrentLabel
     let tLabel = tableLabel (Proxy :: Proxy v)
-    l <- lift getCurrentLabel
-    c <- lift getClearance
-    lift $ guardCanFlowTo l tLabel >> guardCanFlowTo tLabel c
-    res <- Persist.get key
-    whenJust res $ \val -> do
-        -- lift $ mapM_ (\x -> guardCanFlowTo x c) $ getFieldLabels $ Entity key val
-        lift $ mapM_ (\x -> guardCanFlowTo l x >> guardCanFlowTo x c) $ getFieldLabels $ Entity key val
-        Persist.delete key
+    lift $ guardAlloc $ lc `lub` tLabel
+
+    -- labelRead is bottom, so we don't need to taint the current label.
+    Persist.delete key
+
+
+    -- For NONI, we don't actually need to check each field. 
+    -- l <- lift getCurrentLabel
+    -- c <- lift getClearance
+    -- lift $ guardCanFlowTo l tLabel >> guardCanFlowTo tLabel c
+    -- res <- Persist.get key
+    -- whenJust res $ \val -> do
+    --     -- lift $ mapM_ (\x -> guardCanFlowTo x c) $ getFieldLabels $ Entity key val
+    --     lift $ mapM_ (\x -> guardCanFlowTo l x >> guardCanFlowTo x c) $ getFieldLabels $ Entity key val
+    --     Persist.delete key
 
 -- | This function only works for SqlBackends since we need to be able to rollback transactions.
 update :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v) => (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) ()
@@ -586,6 +625,12 @@ guardCanFlowToRollback a b =
 
 updateHelper :: (backend ~ SqlBackend, LMonad m, Label l, LEntity l v, MonadIO m, PersistStore backend, backend ~ PersistEntityBackend v) => (LMonadT l m a) -> (v -> LMonadT l m a) -> (Key v) -> [Update v] -> ReaderT backend (LMonadT l m) a
 updateHelper n j key updates = do
+    -- Get updates labels.
+    -- For each field, guard allocation with lc `lub` updateLabels and the new field label. 
+    -- Dependent fields?
+
+
+
     resM <- Persist.get key
     case resM of
         Nothing ->
