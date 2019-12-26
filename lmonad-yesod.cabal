@@ -81,6 +81,7 @@ library
     , haskell-src-meta
     , lifted-base
     , lmonad
+    , monad-logger
     , mtl
     , persistent > 2.1.2
     , shakespeare

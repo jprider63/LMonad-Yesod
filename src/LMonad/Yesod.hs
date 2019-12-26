@@ -6,6 +6,7 @@
 module LMonad.Yesod where
 
 import Control.Monad (forM)
+import Control.Monad.Logger
 import Data.IORef
 import Data.List (foldl', nub)
 import qualified Data.Map as Map
@@ -298,12 +299,13 @@ extractWidget = swapBase f
 instance (MonadResource m, Label l, LMonad m) => MonadResource (LMonadT l m) where
     liftResourceT = lLift . liftResourceT
 
-instance (MonadLogger m, Label l, MonadTrans (LMonadT l), LMonad m) => MonadLogger (LMonadT l m)
+instance (MonadLogger m, Label l, LMonad m) => MonadLogger (LMonadT l m) where
+    monadLoggerLog a b c d = lLift $ monadLoggerLog a b c d
 
-instance (MonadHandler m, Label l, MonadTrans (LMonadT l), LMonad m) => MonadHandler (LMonadT l m) where
+instance (MonadHandler m, Label l, LMonad m) => MonadHandler (LMonadT l m) where
     type HandlerSite (LMonadT l m) = HandlerSite m
     liftHandler = lLift . liftHandler
 
-instance (MonadWidget m, Label l, MonadTrans (LMonadT l), LMonad m) => MonadWidget (LMonadT l m) where
+instance (MonadWidget m, Label l, LMonad m) => MonadWidget (LMonadT l m) where
     liftWidget = lLift . liftWidget
 
