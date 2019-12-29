@@ -10,7 +10,7 @@ packages:
 # Packages to be pulled from upstream that are not in the resolver (e.g., acme-missiles-0.3)
 extra-deps:
 - git: https://github.com/jprider63/LMonad.git
-  commit: 3949c62aa82c5b8184b3c03cdcb105f86d0eb844
+  commit: e6eda2256f26aaff592106d33e9a4cb4905c014d
 # - lmonad-0.1.0.0
 
 

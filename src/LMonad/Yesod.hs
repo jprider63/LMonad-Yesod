@@ -1,7 +1,6 @@
 -- TODO: Some licensing stuff (http://hackage.haskell.org/package/yesod-core-1.4.3/docs/src/Yesod-Core-Class-Yesod.html)
 
 
-
 {-# LANGUAGE FlexibleContexts, TemplateHaskell, QuasiQuotes, OverloadedStrings, TypeFamilies #-}
 module LMonad.Yesod where
 
@@ -13,6 +12,7 @@ import qualified Data.Map as Map
 import Data.Monoid (Last(..), mempty)
 import Data.Text (Text)
 import Data.Text.Lazy.Builder (toLazyText)
+import qualified Data.Text.Lazy.Builder as TLB
 import Data.Text.Lazy.Encoding (encodeUtf8)
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
@@ -21,6 +21,7 @@ import LMonad.TCB
 import Text.Blaze ( customAttribute, textTag, toValue, (!))
 import qualified Text.Blaze.Html5 as TBH
 import Text.Julius
+import qualified Text.Hamlet as TH
 import Yesod.Core
 import Yesod.Core.Types
 import qualified Yesod.Core.Widget as Yesod
@@ -269,32 +270,78 @@ widgetToPageContent = swapBase $ \w -> do
 handlerToWidget :: (Label l, LMonad (HandlerT site IO), LMonad (WidgetT site IO)) => LMonadT l (HandlerT site IO) a -> LMonadT l (WidgetT site IO) a
 handlerToWidget = swapBase Yesod.handlerToWidget
 
-whamlet = QuasiQuoter { quoteExp = \s -> quoteExp Yesod.whamlet s >>= return . (AppE (VarE 'lLift)) }
 
--- TODO: This seems wrong?
-extractWidget :: (Label l, LMonad (WidgetT site IO)) => LMonadT l (WidgetT site IO) () -> LMonadT l (WidgetT site IO) (WidgetT site IO ())
-extractWidget = swapBase f
-    where
-        -- f :: (WidgetT site IO ((), l)) -> WidgetT site IO (WidgetT site IO (), l)
-        -- -- f (WidgetT w) = WidgetT $ \h -> do
-        -- --     (((), s),g) <- w h
-        -- --     return ((WidgetT (\i -> do
-        -- --             (((),_),h) <- w i
-        -- --             return ((),mappend h g)
-        -- --         ), s), g)
-        -- f (WidgetFor w) = WidgetFor $ \h -> do
-        --     (((), s),g) <- w h
-        --     return ((WidgetFor (\_ -> do
-        --             -- (((),_),g) <- w i
-        --             return ((),g)
-        --         ), s), mempty)
-        f :: (WidgetT site IO ((), l)) -> WidgetT site IO (WidgetT site IO (), l)
-        f (WidgetFor w) = WidgetFor $ \h -> do
-            ((), g) <- w h
-            return (WidgetFor (\_ -> do
-                    -- (((),_),g) <- w i
-                    return ()
-                ), g)
+
+class ToLWidget l site a where
+    toLWidget :: a -> LMonadT l (WidgetT site IO) ()
+
+instance ToLWidget l site (LMonadT l (WidgetT site IO) ()) where
+    toLWidget = id
+
+instance (Label l, LMonad (WidgetT site IO)) => ToLWidget l site (WidgetT site IO ()) where
+    toLWidget = lLift
+
+instance (Label l, LMonad (WidgetT site IO)) => ToLWidget l site TLB.Builder where
+    toLWidget = LMonadT . lift . toWidget . toHtml
+
+instance (Label l, LMonad (WidgetT site IO)) => ToLWidget l site Html where
+    toLWidget = LMonadT . lift . toWidget
+
+-- instance (Label l, LMonad (WidgetT site IO)) => ToLWidget l site (HtmlUrl (Route site)) where
+--     toLWidget = LMonadT . lift . toWidget
+
+-- instance (Label l, LMonad (WidgetT site IO), ToWidget site a) => ToLWidget l site a where
+--     toLWidget = lLift . toWidget
+
+-- whamlet = QuasiQuoter { quoteExp = \s -> quoteExp Yesod.whamlet s >>= return . (AppE (VarE 'lLift)) }
+whamlet = TH.hamletWithSettings rules TH.defaultHamletSettings
+
+asLWidgetT :: LMonadT l (WidgetT site IO) () -> LMonadT l (WidgetT site IO) ()
+asLWidgetT = id
+
+-- From: https://hackage.haskell.org/package/yesod-core-1.6.17/docs/src/Yesod.Core.Widget.html#whamlet
+rules :: Q TH.HamletRules
+rules = do
+    -- ah <- [|asWidgetT . toWidget|]
+    ah <- [|asLWidgetT . toLWidget|]
+    let helper qg f = do
+            x <- newName "urender"
+            e <- f $ VarE x
+            let e' = LamE [VarP x] e
+            g <- qg
+            bind <- [|(>>=)|]
+            return $ InfixE (Just g) bind (Just e')
+    let ur f = do
+            let env = TH.Env
+                    (Just $ helper [|getUrlRenderParams|])
+                    (Just $ helper [|fmap (toHtml .) getMessageRender|])
+            f env
+    return $ TH.HamletRules ah ur $ \_ b -> return $ ah `AppE` b
+
+-- -- TODO: This seems wrong?
+-- extractWidget :: (Label l, LMonad (WidgetT site IO)) => LMonadT l (WidgetT site IO) () -> LMonadT l (WidgetT site IO) (WidgetT site IO ())
+-- extractWidget = swapBase f
+--     where
+--         -- f :: (WidgetT site IO ((), l)) -> WidgetT site IO (WidgetT site IO (), l)
+--         -- -- f (WidgetT w) = WidgetT $ \h -> do
+--         -- --     (((), s),g) <- w h
+--         -- --     return ((WidgetT (\i -> do
+--         -- --             (((),_),h) <- w i
+--         -- --             return ((),mappend h g)
+--         -- --         ), s), g)
+--         -- f (WidgetFor w) = WidgetFor $ \h -> do
+--         --     (((), s),g) <- w h
+--         --     return ((WidgetFor (\_ -> do
+--         --             -- (((),_),g) <- w i
+--         --             return ((),g)
+--         --         ), s), mempty)
+--         f :: (WidgetT site IO ((), l)) -> WidgetT site IO (WidgetT site IO (), l)
+--         f (WidgetFor w) = WidgetFor $ \h -> do
+--             ((), g) <- w h
+--             return (WidgetFor (\_ -> do
+--                     -- (((),_),g) <- w i
+--                     return ()
+--                 ), g)
 
 instance (MonadResource m, Label l, LMonad m) => MonadResource (LMonadT l m) where
     liftResourceT = lLift . liftResourceT
